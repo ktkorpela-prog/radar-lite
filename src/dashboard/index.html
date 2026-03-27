@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VELA LITE · local risk register</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0a0a0a;
+    --surface: #111111;
+    --border: #1a1a1a;
+    --green: #00ff88;
+    --green-dim: #00ff8833;
+    --blue: #00aaff;
+    --blue-dim: #00aaff33;
+    --amber: #ffaa00;
+    --amber-dim: #ffaa0033;
+    --text: #c0c0c0;
+    --text-dim: #666666;
+    --white: #e0e0e0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 40px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header h1 {
+    color: var(--green);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    text-shadow: 0 0 20px var(--green-dim);
+  }
+
+  .header .subtitle {
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  .header .version {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-left: auto;
+  }
+
+  .header .by {
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 4px;
+  }
+
+  .stat-card .label {
+    color: var(--text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .stat-card .value {
+    color: var(--white);
+    font-size: 24px;
+    font-weight: 700;
+  }
+
+  .stat-card .value.green { color: var(--green); }
+  .stat-card .value.amber { color: var(--amber); }
+
+  /* Table */
+  .table-section h2 {
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: #ffffff08; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .badge.t1 {
+    background: var(--green-dim);
+    color: var(--green);
+  }
+
+  .badge.t2 {
+    background: var(--blue-dim);
+    color: var(--blue);
+  }
+
+  .verdict-hold {
+    color: var(--amber);
+    font-weight: 700;
+  }
+
+  .verdict-proceed {
+    color: var(--green);
+  }
+
+  .strategy-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 10px;
+    background: #ffffff11;
+    color: var(--text-dim);
+  }
+
+  /* Expanded row */
+  .expanded-row td {
+    padding: 16px;
+    background: #0d0d0d;
+  }
+
+  .expanded-content {
+    font-size: 11px;
+    white-space: pre-wrap;
+    color: var(--text-dim);
+    line-height: 1.8;
+  }
+
+  .expanded-content .trigger {
+    color: var(--amber);
+  }
+
+  /* Upgrade callout */
+  .upgrade {
+    margin-top: 40px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    text-align: center;
+  }
+
+  .upgrade .heading {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .upgrade .description {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-bottom: 12px;
+  }
+
+  .upgrade a {
+    color: var(--green);
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .upgrade a:hover {
+    text-shadow: 0 0 10px var(--green-dim);
+  }
+
+  .empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  .loading {
+    color: var(--text-dim);
+    font-size: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+
+  @media (max-width: 640px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .header { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <h1>VELA LITE</h1>
+    <span class="subtitle">local risk register</span>
+    <span class="version" id="version"></span>
+    <span class="by">by EssentianLabs</span>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="label">Total assessments</div>
+      <div class="value" id="stat-total">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Hold rate</div>
+      <div class="value amber" id="stat-hold-rate">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">T1 / T2 split</div>
+      <div class="value green" id="stat-tiers">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Top activity</div>
+      <div class="value" id="stat-activity">—</div>
+    </div>
+  </div>
+
+  <div class="table-section">
+    <h2>Recent assessments</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Activity</th>
+          <th>Tier</th>
+          <th>Score</th>
+          <th>Verdict</th>
+          <th>Strategy</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="6" class="loading">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="upgrade">
+    <div class="heading">Running T3/T4 actions?</div>
+    <div class="description">Vela on the server sees patterns across every tenant she serves.</div>
+    <a href="https://radar.essentianlabs.com" target="_blank">Get Vela → radar.essentianlabs.com</a>
+  </div>
+
+</div>
+
+<script>
+const API = '';
+
+async function load() {
+  try {
+    const [statsRes, historyRes, healthRes] = await Promise.all([
+      fetch(`${API}/api/stats`),
+      fetch(`${API}/api/history`),
+      fetch(`${API}/api/health`)
+    ]);
+
+    const stats = await statsRes.json();
+    const history = await historyRes.json();
+    const health = await healthRes.json();
+
+    document.getElementById('version').textContent = `v${health.version}`;
+    document.getElementById('stat-total').textContent = stats.total;
+    document.getElementById('stat-hold-rate').textContent = `${stats.holdRate}%`;
+
+    const t1 = stats.tiers?.T1 || 0;
+    const t2 = stats.tiers?.T2 || 0;
+    document.getElementById('stat-tiers').textContent = `${t1} / ${t2}`;
+    document.getElementById('stat-activity').textContent = stats.topActivity || '—';
+
+    renderHistory(history);
+  } catch (err) {
+    document.getElementById('history-body').innerHTML =
+      `<tr><td colspan="6" class="empty">Could not connect to local API</td></tr>`;
+  }
+}
+
+function renderHistory(records) {
+  const tbody = document.getElementById('history-body');
+
+  if (!records.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">No assessments yet. Run radar.assess() to get started.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = '';
+
+  for (const r of records) {
+    const tr = document.createElement('tr');
+    tr.className = 'clickable';
+
+    const time = new Date(r.created_at).toLocaleString();
+    const tierClass = r.tier === 1 ? 't1' : 't2';
+    const verdictClass = r.verdict === 'HOLD' ? 'verdict-hold' : 'verdict-proceed';
+    const strategyHtml = r.chosen_strategy
+      ? `<span class="strategy-tag">${r.chosen_strategy}</span>`
+      : '—';
+
+    tr.innerHTML = `
+      <td>${time}</td>
+      <td>${r.activity_type}</td>
+      <td><span class="badge ${tierClass}">T${r.tier}</span></td>
+      <td>${r.risk_score}</td>
+      <td><span class="${verdictClass}">${r.verdict}</span></td>
+      <td>${strategyHtml}</td>
+    `;
+
+    const expandedTr = document.createElement('tr');
+    expandedTr.className = 'expanded-row';
+    expandedTr.style.display = 'none';
+    expandedTr.innerHTML = `
+      <td colspan="6">
+        <div class="expanded-content">Call ID: ${r.id}
+Action hash: ${r.action_hash.substring(0, 16)}...
+Tier: T${r.tier}  Score: ${r.risk_score}  Verdict: ${r.verdict}
+${r.chosen_strategy ? `Strategy: ${r.chosen_strategy} (decided by: ${r.decided_by || 'unknown'})` : 'No strategy recorded'}
+${r.vela_overridden ? '⚠ Vela recommendation was overridden' : ''}</div>
+      </td>
+    `;
+
+    tr.addEventListener('click', () => {
+      expandedTr.style.display = expandedTr.style.display === 'none' ? '' : 'none';
+    });
+
+    tbody.appendChild(tr);
+    tbody.appendChild(expandedTr);
+  }
+}
+
+load();
+setInterval(load, 10000);
+</script>
+</body>
+</html>

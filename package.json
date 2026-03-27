@@ -1,0 +1,32 @@
+{
+  "name": "@essentianlabs/radar-lite",
+  "version": "0.1.0",
+  "description": "Local risk assessment for AI agents. Vela Lite runs on your machine.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "radar-lite": "bin/radar-lite.js"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "dev": "node test/manual.js"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "risk",
+    "governance",
+    "safety"
+  ],
+  "author": "EssentianLabs",
+  "license": "MIT",
+  "dependencies": {
+    "sql.js": "^1.10.0",
+    "express": "^4.18.0",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "openai": "^4.0.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  }
+}

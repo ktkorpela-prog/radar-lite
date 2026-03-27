@@ -1,0 +1,6 @@
+test/
+scripts/
+*.test.js
+.env
+.env.*
+node_modules/
