@@ -1,6 +1,5 @@
 import { getAssessment, updateStrategy } from './register.js';
-
-const VALID_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept'];
+import { VALID_STRATEGIES } from './constants.js';
 
 export async function recordStrategy(callId, chosenStrategy, options = {}) {
   if (!VALID_STRATEGIES.includes(chosenStrategy)) {

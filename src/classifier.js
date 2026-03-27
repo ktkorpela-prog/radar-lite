@@ -1,3 +1,5 @@
+import { DEFAULT_SLIDER } from './constants.js';
+
 const BASE_SCORES = {
   financial:     { likelihood: 3, consequence: 5 },
   data_deletion: { likelihood: 3, consequence: 5 },
@@ -6,6 +8,8 @@ const BASE_SCORES = {
   external_api:  { likelihood: 2, consequence: 3 },
   default:       { likelihood: 2, consequence: 2 }
 };
+
+const KNOWN_TYPES = Object.keys(BASE_SCORES).filter(k => k !== 'default');
 
 const RISK_SIGNALS = {
   increase: [
@@ -32,8 +36,21 @@ function getThresholds(sliderPosition) {
   return { t2, t3, t4 };
 }
 
-export function classify(action, activityType, sliderPosition = 0.5) {
+function resolveVerdict(effectiveTier, score, thresholds) {
+  // T2 always holds — needs deliberation
+  if (effectiveTier === 2) return 'HOLD';
+  // T1 proceeds — score is below T2 threshold
+  return 'PROCEED';
+}
+
+export function classify(action, activityType, sliderPosition = DEFAULT_SLIDER) {
   const base = BASE_SCORES[activityType] || BASE_SCORES.default;
+  const isUnknownType = !BASE_SCORES[activityType];
+
+  if (isUnknownType && activityType !== 'default') {
+    console.warn(`⚠ RADAR: Unknown activity type '${activityType}' — scored as default. Known types: ${KNOWN_TYPES.join(', ')}`);
+  }
+
   let score = base.likelihood * base.consequence;
 
   const triggers = [];
@@ -56,27 +73,29 @@ export function classify(action, activityType, sliderPosition = 0.5) {
 
   const thresholds = getThresholds(sliderPosition);
 
-  let tier;
+  let rawTier;
   if (score < thresholds.t2) {
-    tier = 1;
+    rawTier = 1;
   } else if (score < thresholds.t3) {
-    tier = 2;
+    rawTier = 2;
   } else {
-    // T3/T4 — radar-lite caps at T2, but we still classify
-    tier = score < thresholds.t4 ? 3 : 4;
+    rawTier = score < thresholds.t4 ? 3 : 4;
   }
 
   // radar-lite only handles T1/T2 — cap tier at 2 for local processing
-  const effectiveTier = Math.min(tier, 2);
+  const effectiveTier = Math.min(rawTier, 2);
 
   const triggerReason = triggers.length > 0
     ? triggers.join(', ')
-    : `Base ${activityType} risk`;
+    : isUnknownType
+      ? `Unknown type '${activityType}' — scored as default`
+      : `Base ${activityType} risk`;
 
-  const verdict = effectiveTier === 1 ? 'PROCEED' : 'HOLD';
+  const verdict = resolveVerdict(effectiveTier, score, thresholds);
 
   const result = {
     tier: effectiveTier,
+    rawTier,
     riskScore: score,
     triggerReason,
     verdict,

@@ -105,6 +105,7 @@ export async function stats() {
   const db = await ensureDb();
 
   const total = singleValue(db.exec('SELECT COUNT(*) FROM assessments')) || 0;
+  // NOTE: If verdict values expand beyond PROCEED/HOLD, this query needs updating
   const holds = singleValue(db.exec("SELECT COUNT(*) FROM assessments WHERE verdict = 'HOLD'")) || 0;
   const holdRate = total > 0 ? Math.round((holds / total) * 100) : 0;
 

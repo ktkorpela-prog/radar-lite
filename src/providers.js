@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 
+export const DEFAULT_PROVIDER = 'anthropic';
+
 export async function callAnthropic(systemPrompt, userMessage, apiKey) {
   const client = new Anthropic({ apiKey });
   const response = await client.messages.create({

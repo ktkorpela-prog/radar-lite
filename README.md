@@ -32,11 +32,15 @@ const result = await radar.assess(
   'email'
 );
 
-console.log(result.proceed);     // false
-console.log(result.tier);        // 2
-console.log(result.verdict);     // "HOLD"
-console.log(result.vela);        // Vela Lite formatted output
-console.log(result.options);     // { avoid, mitigate, transfer, accept }
+console.log(result.proceed);        // false
+console.log(result.tier);           // 2
+console.log(result.verdict);        // "HOLD"
+console.log(result.vela);           // Vela Lite formatted output
+console.log(result.options);        // { avoid, mitigate, transfer, accept }
+console.log(result.t2Attempted);    // true — T2 ran successfully
+console.log(result.wouldEscalate);  // true — raw score warranted T3/T4
+console.log(result.escalateTier);   // 4 — the tier this action would get on the paid tier
+console.log(result.parseFailed);    // false — Vela Lite LLM output parsed correctly
 
 // Record chosen strategy
 await radar.strategy(result.callId, 'mitigate', {
@@ -44,6 +48,38 @@ await radar.strategy(result.callId, 'mitigate', {
   decidedBy: 'human'
 });
 ```
+
+## Return object
+
+`radar.assess()` returns:
+
+```javascript
+{
+  proceed: false,              // boolean — can the agent go ahead?
+  tier: 1 | 2,                // tier that actually ran (1 if T2 fell back)
+  verdict: "PROCEED" | "HOLD",
+  riskScore: 1-25,            // from T1 classifier
+  triggerReason: "string",     // named risk signals that fired
+  activityType: "email",
+  callId: "ra_xxxxxxxxxxxx",   // unique ID for strategy recording
+  vela: "formatted string",   // T1 one-liner or T2 full Vela Lite output
+  options: null | {            // null for T1, populated for T2
+    avoid: "...",
+    mitigate: "...",
+    transfer: "...",
+    accept: "..."
+  },
+  recommended: null | "mitigate",  // null for T1, strategy name for T2
+  t2Attempted: true | false,   // true only when T2 LLM call ran successfully
+  wouldEscalate: true | false, // true if raw score warranted T3/T4
+  escalateTier: null | 3 | 4,  // raw tier if wouldEscalate, null otherwise
+  parseFailed: true | false    // true if Vela Lite LLM output was malformed
+}
+```
+
+- `t2Attempted: false` + `tier: 1` + T2 message in `vela` means T2 was triggered but fell back (no key or LLM error)
+- `wouldEscalate: true` means the action scored high enough for T3/T4 — consider upgrading to [@essentianlabs/radar](https://radar.essentianlabs.com)
+- `parseFailed: true` means the LLM returned output that didn't contain PROCEED or HOLD — verdict defaulted to HOLD
 
 ## Tiers
 

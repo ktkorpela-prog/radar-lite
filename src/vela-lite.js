@@ -1,4 +1,5 @@
-import { callLLM } from './providers.js';
+import { callLLM, DEFAULT_PROVIDER } from './providers.js';
+import { VALID_STRATEGIES } from './constants.js';
 
 export const VelaLite = {
   profile: Object.freeze({
@@ -10,21 +11,18 @@ export const VelaLite = {
   })
 };
 
-function getAppetiteLabel(sliderPosition) {
-  if (sliderPosition <= 0.3) return 'permissive';
-  if (sliderPosition <= 0.6) return 'balanced';
-  return 'conservative';
-}
+const STRATEGIES_UPPER = VALID_STRATEGIES.map(s => s.toUpperCase());
+const STRATEGIES_REGEX = new RegExp(`^→\\s*(${STRATEGIES_UPPER.join('|')}):\\s*(.+)`, 'i');
 
 function buildSystemPrompt(sliderPosition) {
-  const appetite = getAppetiteLabel(sliderPosition);
+  const strategyLines = STRATEGIES_UPPER
+    .map(s => `→ ${s}:     {one concrete action, max 12 words}{recommended_marker}`)
+    .join('\n');
+
   return `You are Vela Lite — a local risk advisor for AI agent actions.
 Give a fast, actionable risk response. No lengthy analysis. No regulatory citations.
 
-Risk appetite: ${appetite} (${sliderPosition})
-- permissive (0.0-0.3): lean toward mitigate or accept
-- balanced (0.4-0.6): recommend what is genuinely proportionate
-- conservative (0.7-1.0): lean toward avoid or transfer
+Risk appetite slider: ${sliderPosition} (0.0 = permissive, 0.5 = balanced, 1.0 = conservative)
 
 Return ONLY this exact format, nothing else:
 
@@ -32,10 +30,7 @@ VELA LITE (T2) | {activityType} | score {score}
 
 {PROCEED or HOLD} — {one sentence recommendation, max 12 words}
 
-→ AVOID:     {one concrete action, max 12 words}
-→ MITIGATE:  {one concrete action, max 12 words}{recommended_marker}
-→ TRANSFER:  {one concrete action, max 12 words}{recommended_marker}
-→ ACCEPT:    {one concrete action, max 12 words}{recommended_marker}
+${strategyLines}
 
 — Vela Lite · EssentianLabs
 
@@ -56,15 +51,16 @@ Slider: ${sliderPosition}`;
 function parseVelaResponse(raw) {
   const lines = raw.trim().split('\n').map(l => l.trim()).filter(Boolean);
 
-  let verdict = 'HOLD';
+  let verdict = null;
   let recommended = null;
+  let parseFailed = false;
   const options = {};
 
   for (const line of lines) {
     if (line.startsWith('PROCEED')) verdict = 'PROCEED';
     if (line.startsWith('HOLD')) verdict = 'HOLD';
 
-    const optionMatch = line.match(/^→\s*(AVOID|MITIGATE|TRANSFER|ACCEPT):\s*(.+)/i);
+    const optionMatch = line.match(STRATEGIES_REGEX);
     if (optionMatch) {
       const key = optionMatch[1].toLowerCase();
       let value = optionMatch[2].trim();
@@ -76,11 +72,18 @@ function parseVelaResponse(raw) {
     }
   }
 
+  if (verdict === null) {
+    console.warn('⚠ RADAR: Vela Lite LLM response did not contain PROCEED or HOLD — defaulting to HOLD');
+    verdict = 'HOLD';
+    parseFailed = true;
+  }
+
   return {
     formatted: raw.trim(),
     verdict,
     recommended,
-    options
+    options,
+    parseFailed
   };
 }
 
@@ -89,7 +92,7 @@ export async function assessT2(action, activityType, riskScore, triggerReason, s
   const userMessage = buildUserMessage(action, activityType, riskScore, triggerReason, sliderPosition);
 
   const raw = await callLLM(
-    config.llmProvider || 'anthropic',
+    config.llmProvider || DEFAULT_PROVIDER,
     systemPrompt,
     userMessage,
     config.llmKey

@@ -2,10 +2,11 @@ import { classify, formatT1 } from './classifier.js';
 import { VelaLite, assessT2 } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
+import { DEFAULT_SLIDER, DEFAULT_PROVIDER } from './constants.js';
 
 let config = {
   llmKey: null,
-  llmProvider: 'anthropic',
+  llmProvider: DEFAULT_PROVIDER,
   activities: {},
   logLevel: 'info'
 };
@@ -19,7 +20,7 @@ function log(level, ...args) {
 export function configure(options = {}) {
   config = {
     llmKey: options.llmKey || null,
-    llmProvider: options.llmProvider || 'anthropic',
+    llmProvider: options.llmProvider || DEFAULT_PROVIDER,
     activities: options.activities || {},
     logLevel: options.logLevel || 'info'
   };
@@ -31,10 +32,13 @@ export function configure(options = {}) {
 }
 
 export async function assess(action, activityType) {
-  const sliderPosition = config.activities[activityType] ?? 0.5;
+  const sliderPosition = config.activities[activityType] ?? DEFAULT_SLIDER;
   const t1 = classify(action, activityType, sliderPosition);
   const callId = register.generateCallId();
   const actionHash = register.hashAction(action);
+
+  const wouldEscalate = t1.rawTier > 2;
+  const escalateTier = wouldEscalate ? t1.rawTier : null;
 
   // Save to register
   await register.save({
@@ -60,7 +64,11 @@ export async function assess(action, activityType) {
       callId,
       vela: formatted,
       options: null,
-      recommended: null
+      recommended: null,
+      t2Attempted: false,
+      wouldEscalate,
+      escalateTier,
+      parseFailed: false
     };
   }
 
@@ -70,7 +78,7 @@ export async function assess(action, activityType) {
     log('info', `${formatted} (T2 triggered but no LLM key — falling back to T1)`);
     return {
       proceed: t1.verdict === 'PROCEED',
-      tier: 2,
+      tier: 1,
       verdict: t1.verdict,
       riskScore: t1.riskScore,
       triggerReason: t1.triggerReason,
@@ -78,7 +86,11 @@ export async function assess(action, activityType) {
       callId,
       vela: formatted + '\n(No LLM key configured — T2 Vela Lite assessment unavailable)',
       options: null,
-      recommended: null
+      recommended: null,
+      t2Attempted: false,
+      wouldEscalate,
+      escalateTier,
+      parseFailed: false
     };
   }
 
@@ -99,14 +111,18 @@ export async function assess(action, activityType) {
       callId,
       vela: t2.formatted,
       options: t2.options,
-      recommended: t2.recommended
+      recommended: t2.recommended,
+      t2Attempted: true,
+      wouldEscalate,
+      escalateTier,
+      parseFailed: t2.parseFailed
     };
   } catch (err) {
     const formatted = formatT1(t1);
     log('info', `${formatted} (T2 LLM call failed: ${err.message})`);
     return {
       proceed: t1.verdict === 'PROCEED',
-      tier: 2,
+      tier: 1,
       verdict: t1.verdict,
       riskScore: t1.riskScore,
       triggerReason: t1.triggerReason,
@@ -114,7 +130,11 @@ export async function assess(action, activityType) {
       callId,
       vela: formatted + `\n(T2 LLM call failed: ${err.message})`,
       options: null,
-      recommended: null
+      recommended: null,
+      t2Attempted: false,
+      wouldEscalate,
+      escalateTier,
+      parseFailed: false
     };
   }
 }
