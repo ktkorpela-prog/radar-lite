@@ -51,7 +51,7 @@ export async function assess(action, activityType) {
     const formatted = formatT1(t1);
     log('info', formatted);
     return {
-      proceed: true,
+      proceed: t1.verdict === 'PROCEED',
       tier: 1,
       verdict: t1.verdict,
       riskScore: t1.riskScore,
