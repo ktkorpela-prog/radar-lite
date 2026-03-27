@@ -13,7 +13,7 @@ npm install @essentianlabs/radar-lite
 ```javascript
 import radar from '@essentianlabs/radar-lite';
 
-// Configure — LLM key is optional (enables T2 assessment)
+// Configure — LLM key is optional (enables Vela Lite assessment)
 radar.configure({
   llmKey: process.env.ANTHROPIC_API_KEY,    // optional
   llmProvider: 'anthropic',                  // 'anthropic' | 'openai' | 'google'
@@ -26,7 +26,7 @@ radar.configure({
   }
 });
 
-// Assess an action
+// Assess an action — Vela Lite runs on every assessment
 const result = await radar.assess(
   'Send price increase email to 50,000 users',
   'email'
@@ -35,12 +35,13 @@ const result = await radar.assess(
 console.log(result.proceed);        // false
 console.log(result.tier);           // 2
 console.log(result.verdict);        // "HOLD"
+console.log(result.promptMode);     // "tldr" — full assessment with options
 console.log(result.vela);           // Vela Lite formatted output
 console.log(result.options);        // { avoid, mitigate, transfer, accept }
-console.log(result.t2Attempted);    // true — T2 ran successfully
+console.log(result.t2Attempted);    // true — Vela Lite LLM call ran
 console.log(result.wouldEscalate);  // true — raw score warranted T3/T4
 console.log(result.escalateTier);   // 4 — the tier this action would get on the paid tier
-console.log(result.parseFailed);    // false — Vela Lite LLM output parsed correctly
+console.log(result.parseFailed);    // false — Vela Lite output parsed correctly
 
 // Record chosen strategy
 await radar.strategy(result.callId, 'mitigate', {
@@ -49,6 +50,18 @@ await radar.strategy(result.callId, 'mitigate', {
 });
 ```
 
+## How it works
+
+Every call to `radar.assess()` follows this flow:
+
+1. **Rules engine scores** — produces riskScore, triggerReason, activityType, rawTier
+2. **Vela Lite always called** with that context (when LLM key is configured)
+3. **Slider threshold determines output depth:**
+   - Score below T2 threshold → Vela Lite returns **one-liner** (`promptMode: 'oneliner'`, tier 1)
+   - Score at or above T2 threshold → Vela Lite returns **TL;DR with four options** (`promptMode: 'tldr'`, tier 2)
+
+Without an LLM key, the rules engine provides a formatted one-liner fallback.
+
 ## Return object
 
 `radar.assess()` returns:
@@ -56,28 +69,29 @@ await radar.strategy(result.callId, 'mitigate', {
 ```javascript
 {
   proceed: false,              // boolean — can the agent go ahead?
-  tier: 1 | 2,                // tier that actually ran (1 if T2 fell back)
+  tier: 1 | 2,                // 1 = oneliner, 2 = tldr with options
   verdict: "PROCEED" | "HOLD",
-  riskScore: 1-25,            // from T1 classifier
+  riskScore: 1-25,            // from rules engine
   triggerReason: "string",     // named risk signals that fired
   activityType: "email",
   callId: "ra_xxxxxxxxxxxx",   // unique ID for strategy recording
-  vela: "formatted string",   // T1 one-liner or T2 full Vela Lite output
-  options: null | {            // null for T1, populated for T2
+  vela: "formatted string",   // Vela Lite one-liner or full TL;DR output
+  options: null | {            // null for oneliner, populated for tldr
     avoid: "...",
     mitigate: "...",
     transfer: "...",
     accept: "..."
   },
-  recommended: null | "mitigate",  // null for T1, strategy name for T2
-  t2Attempted: true | false,   // true only when T2 LLM call ran successfully
+  recommended: null | "mitigate",  // null for oneliner, strategy name for tldr
+  promptMode: "oneliner" | "tldr", // which Vela Lite mode ran
+  t2Attempted: true | false,   // true when Vela Lite LLM call ran successfully
   wouldEscalate: true | false, // true if raw score warranted T3/T4
   escalateTier: null | 3 | 4,  // raw tier if wouldEscalate, null otherwise
   parseFailed: true | false    // true if Vela Lite LLM output was malformed
 }
 ```
 
-- `t2Attempted: false` + `tier: 1` + T2 message in `vela` means T2 was triggered but fell back (no key or LLM error)
+- `t2Attempted: false` means no LLM key was configured or the call failed — rules engine fallback
 - `wouldEscalate: true` means the action scored high enough for T3/T4 — consider upgrading to [@essentianlabs/radar](https://radar.essentianlabs.com)
 - `parseFailed: true` means the LLM returned output that didn't contain PROCEED or HOLD — verdict defaulted to HOLD
 
@@ -85,8 +99,8 @@ await radar.strategy(result.callId, 'mitigate', {
 
 | Tier | What happens | Requires |
 |------|-------------|----------|
-| T1 | Rules engine only — deterministic scoring | Nothing |
-| T2 | Vela Lite LLM assessment — actionable strategies | Developer LLM key |
+| T1 | Vela Lite one-liner — quick verdict | LLM key (or rules engine fallback) |
+| T2 | Vela Lite TL;DR — verdict + four strategy options | LLM key |
 | T3/T4 | Server-side deliberation via Vela | [@essentianlabs/radar](https://radar.essentianlabs.com) |
 
 ## Slider positions
@@ -121,7 +135,7 @@ npx radar-lite version    # package version
 
 ## LLM providers
 
-T2 uses your own LLM key. Supported providers:
+Vela Lite uses your own LLM key. Supported providers:
 
 | Provider | Model | SDK |
 |----------|-------|-----|

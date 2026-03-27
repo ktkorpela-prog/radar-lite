@@ -1,8 +1,8 @@
-import { classify, formatT1 } from './classifier.js';
-import { VelaLite, assessT2 } from './vela-lite.js';
+import { classify, getThresholds } from './classifier.js';
+import { VelaLite, assessVela } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
-import { DEFAULT_SLIDER, DEFAULT_PROVIDER } from './constants.js';
+import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL } from './constants.js';
 
 let config = {
   llmKey: null,
@@ -15,6 +15,10 @@ function log(level, ...args) {
   if (config.logLevel === 'silent') return;
   if (level === 'verbose' && config.logLevel !== 'verbose') return;
   console.log(...args);
+}
+
+function formatRulesOneliner(scored) {
+  return `${T1_LABEL} | PROCEED | ${scored.triggerReason} | ${scored.activityType} | score ${scored.riskScore}`;
 }
 
 export function configure(options = {}) {
@@ -33,107 +37,104 @@ export function configure(options = {}) {
 
 export async function assess(action, activityType) {
   const sliderPosition = config.activities[activityType] ?? DEFAULT_SLIDER;
-  const t1 = classify(action, activityType, sliderPosition);
+  const scored = classify(action, activityType, sliderPosition);
   const callId = register.generateCallId();
   const actionHash = register.hashAction(action);
 
-  const wouldEscalate = t1.rawTier > 2;
-  const escalateTier = wouldEscalate ? t1.rawTier : null;
+  // Determine prompt mode from threshold
+  const thresholds = getThresholds(sliderPosition);
+  const promptMode = scored.riskScore < thresholds.t2 ? 'oneliner' : 'tldr';
+  const tier = promptMode === 'oneliner' ? 1 : 2;
 
-  // Save to register
+  // Save to register — verdict will be determined by Vela Lite
+  // Save tier from threshold determination
   await register.save({
     callId,
     actionHash,
-    activityType: t1.activityType,
-    tier: t1.tier,
-    riskScore: t1.riskScore,
-    verdict: t1.verdict
+    activityType: scored.activityType,
+    tier,
+    riskScore: scored.riskScore,
+    verdict: 'PENDING'
   });
 
-  // T1 — no LLM needed
-  if (t1.tier === 1) {
-    const formatted = formatT1(t1);
-    log('info', formatted);
-    return {
-      proceed: t1.verdict === 'PROCEED',
-      tier: 1,
-      verdict: t1.verdict,
-      riskScore: t1.riskScore,
-      triggerReason: t1.triggerReason,
-      activityType: t1.activityType,
-      callId,
-      vela: formatted,
-      options: null,
-      recommended: null,
-      t2Attempted: false,
-      wouldEscalate,
-      escalateTier,
-      parseFailed: false
-    };
-  }
-
-  // T2 — needs LLM key
+  // No LLM key — fall back to rules engine formatted one-liner
   if (!config.llmKey) {
-    const formatted = formatT1(t1);
-    log('info', `${formatted} (T2 triggered but no LLM key — falling back to T1)`);
+    const formatted = formatRulesOneliner(scored);
+    log('info', `${formatted} (No LLM key — rules engine only)`);
+
+    // Update verdict in register
+    await register.updateVerdict(callId, 'PROCEED');
+
     return {
-      proceed: t1.verdict === 'PROCEED',
-      tier: 1,
-      verdict: t1.verdict,
-      riskScore: t1.riskScore,
-      triggerReason: t1.triggerReason,
-      activityType: t1.activityType,
+      proceed: true,
+      tier,
+      verdict: 'PROCEED',
+      riskScore: scored.riskScore,
+      triggerReason: scored.triggerReason,
+      activityType: scored.activityType,
       callId,
-      vela: formatted + '\n(No LLM key configured — T2 Vela Lite assessment unavailable)',
+      vela: formatted + '\n(No LLM key configured — Vela Lite assessment unavailable)',
       options: null,
       recommended: null,
+      promptMode,
       t2Attempted: false,
-      wouldEscalate,
-      escalateTier,
+      wouldEscalate: scored.wouldEscalate,
+      escalateTier: scored.escalateTier,
       parseFailed: false
     };
   }
 
+  // Vela Lite always runs when key is configured
   try {
-    const t2 = await assessT2(
-      action, activityType, t1.riskScore, t1.triggerReason, sliderPosition, config
+    const vela = await assessVela(
+      action, scored.activityType, scored.riskScore, scored.triggerReason,
+      sliderPosition, promptMode, config
     );
 
-    log('info', t2.formatted);
+    log('info', vela.formatted);
+
+    // Update verdict in register
+    await register.updateVerdict(callId, vela.verdict);
 
     return {
-      proceed: t2.verdict === 'PROCEED',
-      tier: 2,
-      verdict: t2.verdict,
-      riskScore: t1.riskScore,
-      triggerReason: t1.triggerReason,
-      activityType: t1.activityType,
+      proceed: vela.verdict === 'PROCEED',
+      tier,
+      verdict: vela.verdict,
+      riskScore: scored.riskScore,
+      triggerReason: scored.triggerReason,
+      activityType: scored.activityType,
       callId,
-      vela: t2.formatted,
-      options: t2.options,
-      recommended: t2.recommended,
+      vela: vela.formatted,
+      options: vela.options,
+      recommended: vela.recommended,
+      promptMode,
       t2Attempted: true,
-      wouldEscalate,
-      escalateTier,
-      parseFailed: t2.parseFailed
+      wouldEscalate: scored.wouldEscalate,
+      escalateTier: scored.escalateTier,
+      parseFailed: vela.parseFailed
     };
   } catch (err) {
-    const formatted = formatT1(t1);
-    log('info', `${formatted} (T2 LLM call failed: ${err.message})`);
+    const formatted = formatRulesOneliner(scored);
+    log('info', `${formatted} (Vela Lite call failed: ${err.message})`);
+
+    // Update verdict in register
+    await register.updateVerdict(callId, 'PROCEED');
+
     return {
-      proceed: t1.verdict === 'PROCEED',
-      tier: 1,
-      verdict: t1.verdict,
-      riskScore: t1.riskScore,
-      triggerReason: t1.triggerReason,
-      activityType: t1.activityType,
+      proceed: true,
+      tier,
+      verdict: 'PROCEED',
+      riskScore: scored.riskScore,
+      triggerReason: scored.triggerReason,
+      activityType: scored.activityType,
       callId,
-      vela: formatted + `\n(T2 LLM call failed: ${err.message})`,
+      vela: formatted + `\n(Vela Lite call failed: ${err.message})`,
       options: null,
       recommended: null,
+      promptMode,
       t2Attempted: false,
-      wouldEscalate,
-      escalateTier,
+      wouldEscalate: scored.wouldEscalate,
+      escalateTier: scored.escalateTier,
       parseFailed: false
     };
   }

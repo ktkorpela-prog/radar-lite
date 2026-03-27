@@ -1,22 +1,25 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, formatT1 } from '../src/classifier.js';
+import { classify, getThresholds } from '../src/classifier.js';
 
-describe('T1 classifier', () => {
+describe('classifier — rules engine pre-scorer', () => {
 
-  it('classifies low-risk action as T1 PROCEED', () => {
-    // default base score 4, no signals, permissive T2 threshold at 7 → T1
+  it('scores low-risk action below T2 threshold', () => {
+    // external_api base score 6, no signals, permissive T2 threshold at 7 → below T2
     const result = classify('Check weather forecast', 'external_api', 0.0);
-    assert.equal(result.tier, 1);
-    assert.equal(result.verdict, 'PROCEED');
+    assert.equal(result.riskScore, 6);
+    assert.equal(result.rawTier, 1);
     assert.equal(result.activityType, 'external_api');
+    assert.equal(result.wouldEscalate, false);
+    assert.equal(result.escalateTier, null);
+    // No verdict — Vela Lite owns the verdict now
+    assert.equal(result.verdict, undefined);
   });
 
-  it('classifies high-risk email as T2 HOLD', () => {
+  it('scores high-risk email above T2 threshold', () => {
     const result = classify('Send price increase email to all 50,000 users', 'email', 0.7);
-    assert.equal(result.tier, 2);
-    assert.equal(result.verdict, 'HOLD');
     assert.ok(result.riskScore >= 5);
+    assert.ok(result.rawTier >= 2);
   });
 
   it('increases score for mass/scale signals', () => {
@@ -38,10 +41,9 @@ describe('T1 classifier', () => {
   });
 
   it('slider at 0.0 (permissive) raises thresholds', () => {
-    const permissive = classify('Send email to users', 'email', 0.0);
-    const conservative = classify('Send email to users', 'email', 1.0);
-    // Same action — permissive should yield lower tier or same
-    assert.ok(permissive.tier <= conservative.tier);
+    const permissive = getThresholds(0.0);
+    const conservative = getThresholds(1.0);
+    assert.ok(permissive.t2 > conservative.t2);
   });
 
   it('clamps score between 1 and 25', () => {
@@ -50,26 +52,27 @@ describe('T1 classifier', () => {
     assert.ok(result.riskScore <= 25);
   });
 
-  it('defaults to default activity type for unknown types', () => {
+  it('warns on unknown activity type and scores as default', () => {
     const result = classify('Do something', 'unknown_type', 0.5);
     assert.equal(result.activityType, 'unknown_type');
     assert.ok(result.riskScore >= 1);
+    assert.ok(result.triggerReason.includes('Unknown type'));
   });
 
-  it('formatT1 produces correct output format', () => {
-    const result = {
-      tier: 1,
-      riskScore: 4,
-      triggerReason: 'Base email risk',
-      verdict: 'PROCEED',
-      activityType: 'email'
-    };
-    const formatted = formatT1(result);
-    assert.equal(formatted, 'VELA LITE (T1) | PROCEED | Base email risk | email | score 4');
+  it('returns wouldEscalate for extreme risk', () => {
+    const result = classify('Delete all credit card payment records for everyone', 'financial', 1.0);
+    assert.equal(result.wouldEscalate, true);
+    assert.ok(result.escalateTier >= 3);
   });
 
   it('financial actions have high base score', () => {
     const result = classify('Transfer funds', 'financial', 0.5);
     assert.ok(result.riskScore >= 10);
+  });
+
+  it('returns rawTier without capping', () => {
+    // Max score financial at conservative should give rawTier 3 or 4
+    const result = classify('Delete all credit card payment records for everyone', 'financial', 1.0);
+    assert.ok(result.rawTier >= 3);
   });
 });

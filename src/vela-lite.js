@@ -1,5 +1,5 @@
 import { callLLM, DEFAULT_PROVIDER } from './providers.js';
-import { VALID_STRATEGIES } from './constants.js';
+import { VALID_STRATEGIES, T1_LABEL, T2_LABEL } from './constants.js';
 
 export const VelaLite = {
   profile: Object.freeze({
@@ -14,7 +14,15 @@ export const VelaLite = {
 const STRATEGIES_UPPER = VALID_STRATEGIES.map(s => s.toUpperCase());
 const STRATEGIES_REGEX = new RegExp(`^→\\s*(${STRATEGIES_UPPER.join('|')}):\\s*(.+)`, 'i');
 
-function buildSystemPrompt(sliderPosition) {
+function buildOnelinerPrompt() {
+  return `You are Vela Lite — a local risk advisor for AI agent actions.
+Return ONLY one line in this exact format, nothing else:
+${T1_LABEL} | PROCEED or HOLD | {one specific trigger reason} | {activityType} | score {n}
+Base your verdict on the risk score and trigger reason provided.
+No other text. No explanation.`;
+}
+
+function buildTldrPrompt(sliderPosition) {
   const strategyLines = STRATEGIES_UPPER
     .map(s => `→ ${s}:     {one concrete action, max 12 words}{recommended_marker}`)
     .join('\n');
@@ -26,7 +34,7 @@ Risk appetite slider: ${sliderPosition} (0.0 = permissive, 0.5 = balanced, 1.0 =
 
 Return ONLY this exact format, nothing else:
 
-VELA LITE (T2) | {activityType} | score {score}
+${T2_LABEL} | {activityType} | score {score}
 
 {PROCEED or HOLD} — {one sentence recommendation, max 12 words}
 
@@ -48,7 +56,31 @@ Trigger: ${triggerReason}
 Slider: ${sliderPosition}`;
 }
 
-function parseVelaResponse(raw) {
+function parseOnelinerResponse(raw) {
+  const line = raw.trim().split('\n')[0].trim();
+
+  let verdict = null;
+  let parseFailed = false;
+
+  if (line.includes('PROCEED')) verdict = 'PROCEED';
+  if (line.includes('HOLD')) verdict = 'HOLD';
+
+  if (verdict === null) {
+    console.warn('⚠ RADAR: Vela Lite oneliner response did not contain PROCEED or HOLD — defaulting to HOLD');
+    verdict = 'HOLD';
+    parseFailed = true;
+  }
+
+  return {
+    formatted: line,
+    verdict,
+    recommended: null,
+    options: null,
+    parseFailed
+  };
+}
+
+function parseTldrResponse(raw) {
   const lines = raw.trim().split('\n').map(l => l.trim()).filter(Boolean);
 
   let verdict = null;
@@ -87,8 +119,11 @@ function parseVelaResponse(raw) {
   };
 }
 
-export async function assessT2(action, activityType, riskScore, triggerReason, sliderPosition, config) {
-  const systemPrompt = buildSystemPrompt(sliderPosition);
+export async function assessVela(action, activityType, riskScore, triggerReason, sliderPosition, mode, config) {
+  const systemPrompt = mode === 'oneliner'
+    ? buildOnelinerPrompt()
+    : buildTldrPrompt(sliderPosition);
+
   const userMessage = buildUserMessage(action, activityType, riskScore, triggerReason, sliderPosition);
 
   const raw = await callLLM(
@@ -98,5 +133,7 @@ export async function assessT2(action, activityType, riskScore, triggerReason, s
     config.llmKey
   );
 
-  return parseVelaResponse(raw);
+  return mode === 'oneliner'
+    ? parseOnelinerResponse(raw)
+    : parseTldrResponse(raw);
 }

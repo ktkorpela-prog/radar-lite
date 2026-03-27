@@ -26,7 +26,7 @@ const RISK_SIGNALS = {
   ]
 };
 
-function getThresholds(sliderPosition) {
+export function getThresholds(sliderPosition) {
   // 0.0 permissive: T2 at 7,  T3 at 13, T4 at 20
   // 0.5 balanced:   T2 at 5,  T3 at 10, T4 at 17
   // 1.0 conservative: T2 at 3, T3 at 7,  T4 at 12
@@ -34,13 +34,6 @@ function getThresholds(sliderPosition) {
   const t3 = 13 - (6 * sliderPosition);
   const t4 = 20 - (8 * sliderPosition);
   return { t2, t3, t4 };
-}
-
-function resolveVerdict(effectiveTier, score, thresholds) {
-  // T2 always holds — needs deliberation
-  if (effectiveTier === 2) return 'HOLD';
-  // T1 proceeds — score is below T2 threshold
-  return 'PROCEED';
 }
 
 export function classify(action, activityType, sliderPosition = DEFAULT_SLIDER) {
@@ -82,8 +75,8 @@ export function classify(action, activityType, sliderPosition = DEFAULT_SLIDER) 
     rawTier = score < thresholds.t4 ? 3 : 4;
   }
 
-  // radar-lite only handles T1/T2 — cap tier at 2 for local processing
-  const effectiveTier = Math.min(rawTier, 2);
+  const wouldEscalate = rawTier > 2;
+  const escalateTier = wouldEscalate ? rawTier : null;
 
   const triggerReason = triggers.length > 0
     ? triggers.join(', ')
@@ -91,20 +84,12 @@ export function classify(action, activityType, sliderPosition = DEFAULT_SLIDER) 
       ? `Unknown type '${activityType}' — scored as default`
       : `Base ${activityType} risk`;
 
-  const verdict = resolveVerdict(effectiveTier, score, thresholds);
-
-  const result = {
-    tier: effectiveTier,
-    rawTier,
+  return {
     riskScore: score,
+    rawTier,
     triggerReason,
-    verdict,
-    activityType
+    activityType,
+    wouldEscalate,
+    escalateTier
   };
-
-  return result;
-}
-
-export function formatT1(result) {
-  return `VELA LITE (T1) | ${result.verdict} | ${result.triggerReason} | ${result.activityType} | score ${result.riskScore}`;
 }

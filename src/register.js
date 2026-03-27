@@ -130,6 +130,12 @@ export async function stats() {
   };
 }
 
+export async function updateVerdict(callId, verdict) {
+  const db = await ensureDb();
+  db.run('UPDATE assessments SET verdict = ? WHERE id = ?', [verdict, callId]);
+  persistDb();
+}
+
 export async function updateStrategy(callId, strategy, decidedBy, velaOverridden = false) {
   const db = await ensureDb();
   db.run(
