@@ -19,6 +19,8 @@ function buildOnelinerPrompt() {
 Return ONLY one line in this exact format, nothing else:
 ${T1_LABEL} | PROCEED or HOLD | {one specific trigger reason} | {activityType} | score {n}
 Base your verdict on the risk score and trigger reason provided.
+HOLD if riskScore >= 8, or if the action is irreversible, affects many people, or has meaningful consequence if wrong.
+PROCEED if the action is routine, reversible, low consequence, or internal only.
 No other text. No explanation.`;
 }
 
@@ -32,6 +34,12 @@ Give a fast, actionable risk response. No lengthy analysis. No regulatory citati
 
 Risk appetite slider: ${sliderPosition} (0.0 = permissive, 0.5 = balanced, 1.0 = conservative)
 
+Strategy definitions — use these exactly:
+AVOID = do not take this action at all — block it entirely
+MITIGATE = take the action but add specific controls to reduce risk
+TRANSFER = delegate the risk to a third party (vendor, legal, compliance)
+ACCEPT = proceed as-is, document the decision and accept accountability
+
 Return ONLY this exact format, nothing else:
 
 ${T2_LABEL} | {activityType} | score {score}
@@ -43,6 +51,9 @@ ${strategyLines}
 — Vela Lite · EssentianLabs
 
 Rules:
+- The rules engine already determined this action exceeds the review threshold.
+- Default to HOLD unless you see strong specific reason to proceed.
+- A PROCEED at T2 must be explicitly justified by low consequence or high reversibility.
 - Mark only ONE option with " (recommended)" inline
 - Each option must be specific to this action — no generic advice
 - No extra text before or after the format above`;

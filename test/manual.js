@@ -1,18 +1,26 @@
 import radar from '../src/index.js';
 
+// --- Oneliner test — low risk internal action ---
+console.log('\n--- ONELINER MODE (T1) ---');
 radar.configure({
   llmKey: process.env.ANTHROPIC_API_KEY,
   llmProvider: 'anthropic',
-  activities: { email: 0.7, financial: 0.9, external_api: 0.3 }
+  activities: { external_api: 0.5 }
 });
-
-// Oneliner mode — low risk, Vela Lite returns one-liner
-console.log('\n--- ONELINER MODE (T1) ---');
-const t1 = await radar.assess('Check weather API for forecast data', 'external_api');
+const t1 = await radar.assess(
+  'Read internal config file from local disk',
+  'external_api'
+);
+// This should score low — "internal" is a decrease signal
 console.log('Result:', JSON.stringify(t1, null, 2));
 
-// TL;DR mode — high risk, Vela Lite returns full assessment
+// --- TL;DR test — high risk email ---
 console.log('\n--- TLDR MODE (T2) ---');
+radar.configure({
+  llmKey: process.env.ANTHROPIC_API_KEY,
+  llmProvider: 'anthropic',
+  activities: { email: 0.7, financial: 0.9 }
+});
 const t2 = await radar.assess(
   'Send price increase email to 50,000 users',
   'email'
