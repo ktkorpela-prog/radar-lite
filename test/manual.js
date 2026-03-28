@@ -5,11 +5,11 @@ console.log('\n--- ONELINER MODE (T1) ---');
 radar.configure({
   llmKey: process.env.ANTHROPIC_API_KEY,
   llmProvider: 'anthropic',
-  activities: { external_api: 0.5 }
+  activities: { external_api_call: 0.5 }
 });
 const t1 = await radar.assess(
   'Read internal config file from local disk',
-  'external_api'
+  'external_api_call'
 );
 console.log('Result:', JSON.stringify(t1, null, 2));
 

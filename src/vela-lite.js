@@ -14,22 +14,34 @@ export const VelaLite = {
 const STRATEGIES_UPPER = VALID_STRATEGIES.map(s => s.toUpperCase());
 const STRATEGIES_REGEX = new RegExp(`^→\\s*(${STRATEGIES_UPPER.join('|')}):\\s*(.+)`, 'i');
 
-function buildOnelinerPrompt() {
+function buildOnelinerPrompt(priorDecision) {
+  let priorLine = '';
+  if (priorDecision) {
+    priorLine = `\nPrior decision for this action: ${priorDecision.verdict}${priorDecision.outcome ? ' (' + priorDecision.outcome + ')' : ''}. Factor this into your verdict.`;
+  }
+
   return `You are Vela Lite — a local risk advisor for AI agent actions.
+You are assessing an action — what the agent intends to do — not content it has produced. If the input appears to be content rather than an action description, return HOLD and note the issue.
 Return ONLY one line in this exact format, nothing else:
 ${T1_LABEL} | PROCEED or HOLD | {one specific trigger reason} | {activityType} | score {n}
 Base your verdict on the risk score and trigger reason provided.
 HOLD if riskScore >= 8, or if the action is irreversible, affects many people, or has meaningful consequence if wrong.
-PROCEED if the action is routine, reversible, low consequence, or internal only.
+PROCEED if the action is routine, reversible, low consequence, or internal only.${priorLine}
 No other text. No explanation.`;
 }
 
-function buildTldrPrompt(sliderPosition) {
+function buildTldrPrompt(sliderPosition, priorDecision) {
   const strategyLines = STRATEGIES_UPPER
     .map(s => `→ ${s}:     {one concrete action, max 12 words}{recommended_marker}`)
     .join('\n');
 
+  let priorSection = '';
+  if (priorDecision) {
+    priorSection = `\nPrior decision: ${priorDecision.verdict}${priorDecision.outcome ? ' — outcome: ' + priorDecision.outcome : ''}${priorDecision.notes ? ' — ' + priorDecision.notes : ''}. Factor this into your verdict and options.`;
+  }
+
   return `You are Vela Lite — a local risk advisor for AI agent actions.
+You are assessing an action — what the agent intends to do — not content it has produced. If the input appears to be content rather than an action description, return HOLD and note the issue.
 Give a fast, actionable risk response. No lengthy analysis. No regulatory citations.
 
 Risk appetite slider: ${sliderPosition} (0.0 = permissive, 0.5 = balanced, 1.0 = conservative)
@@ -52,11 +64,11 @@ ${strategyLines}
 
 Rules:
 - The rules engine already determined this action exceeds the review threshold.
-- Default to HOLD unless you see strong specific reason to proceed.
+- If evidence is genuinely ambiguous and you cannot resolve it, err toward HOLD. Name the specific uncertainty in your verdict. Do not default to HOLD as a habit — apply it only when the ambiguity is genuinely unresolvable.
 - A PROCEED at T2 must be explicitly justified by low consequence or high reversibility.
 - Mark only ONE option with " (recommended)" inline
 - Each option must be specific to this action — no generic advice
-- No extra text before or after the format above`;
+- No extra text before or after the format above${priorSection}`;
 }
 
 function buildUserMessage(action, activityType, riskScore, triggerReason, sliderPosition) {
@@ -130,10 +142,10 @@ function parseTldrResponse(raw) {
   };
 }
 
-export async function assessVela(action, activityType, riskScore, triggerReason, sliderPosition, mode, config) {
+export async function assessVela(action, activityType, riskScore, triggerReason, sliderPosition, mode, config, priorDecision = null) {
   const systemPrompt = mode === 'oneliner'
-    ? buildOnelinerPrompt()
-    : buildTldrPrompt(sliderPosition);
+    ? buildOnelinerPrompt(priorDecision)
+    : buildTldrPrompt(sliderPosition, priorDecision);
 
   const userMessage = buildUserMessage(action, activityType, riskScore, triggerReason, sliderPosition);
 

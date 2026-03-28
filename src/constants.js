@@ -14,7 +14,7 @@ export const ACTIVITY_TYPES = [
   'data_delete_single',
   'data_delete_bulk',
   'web_search',
-  'external_api',
+  'external_api_call',
   'system_execute',
   'system_files',
   'financial'
@@ -24,7 +24,8 @@ export const ACTIVITY_TYPES = [
 const DEPRECATED_TYPES = {
   email: 'email_single',
   publishing: 'publish',
-  data_deletion: 'data_delete_single'
+  data_deletion: 'data_delete_single',
+  external_api: 'external_api_call'
 };
 
 export function resolveActivityType(activityType) {

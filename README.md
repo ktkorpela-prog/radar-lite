@@ -2,6 +2,10 @@
 
 Local risk assessment for AI agents. **Vela Lite** runs on your machine — no data ever leaves it.
 
+## Advisory notice
+
+RADAR produces risk intelligence, not safety assurance. Vela Lite's verdict is an assessment based on the action description you provide. It does not verify what your agent actually executes. A PROCEED verdict does not transfer liability — the developer remains responsible for the action taken and the accuracy of the description submitted.
+
 ## Install
 
 ```bash
@@ -58,7 +62,7 @@ await radar.strategy(result.callId, 'mitigate', {
 | `data_delete_single` | High | Deleting a single record |
 | `data_delete_bulk` | Very high | Bulk deletion |
 | `web_search` | Very low | Web searches |
-| `external_api` | Medium | External API calls |
+| `external_api_call` | Medium | External API calls |
 | `system_execute` | High | Running system commands |
 | `system_files` | High | Modifying system files |
 | `financial` | Very high | Financial transactions |
@@ -72,8 +76,9 @@ The following v0.1 types still work but log a deprecation warning:
 | `email` | `email_single` |
 | `publishing` | `publish` |
 | `data_deletion` | `data_delete_single` |
+| `external_api` | `external_api_call` |
 
-`external_api` and `financial` are unchanged.
+`financial` is unchanged.
 
 ## How it works
 
@@ -82,8 +87,9 @@ Every call to `radar.assess()` follows this flow:
 1. **Check trigger policy** — if a matching pattern exists, short-circuit with `human_required` or `no_assessment`
 2. **Check activity config** — if `requiresHumanReview` is on for this type, return HOLD immediately
 3. **Rules engine scores** — produces riskScore, triggerReason, activityType, rawTier
-4. **Vela Lite always called** with that context (when LLM key is configured)
-5. **Slider threshold determines output depth:**
+4. **Prior decision lookup** — if the action hash has been assessed before, the prior verdict is passed to Vela Lite as context
+5. **Vela Lite always called** with that context (when LLM key is configured)
+6. **Slider threshold determines output depth:**
    - Score below T2 threshold → `oneliner` mode (tier 1)
    - Score at or above T2 threshold → `tldr` mode with four options (tier 2)
 
@@ -159,6 +165,8 @@ Each activity type has a slider from `0.0` (permissive) to `1.0` (conservative):
 - **0.7–1.0 conservative**: T2 triggers at score 3
 
 Slider position is resolved in order: SQLite `activity_config` → JS `config.activities` → default 0.5.
+
+**Note:** Vela Lite uses slider-interpolated thresholds that adapt to developer risk appetite. The full RADAR API (paid tier) uses fixed integer tier boundaries (T1=1–4, T2=5–9, T3=10–16, T4=17–25). This is an intentional design difference — Lite gives developers control over sensitivity; the full API enforces standardised tier classification.
 
 ## Dashboard
 

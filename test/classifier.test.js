@@ -59,8 +59,14 @@ describe('classifier — rules engine pre-scorer', () => {
     assert.equal(result.riskScore, 9);
   });
 
-  it('external_api retains same score', () => {
+  it('external_api_call retains same score', () => {
+    const result = classify('Call API', 'external_api_call', 0.5);
+    assert.equal(result.riskScore, 6);
+  });
+
+  it('deprecated "external_api" resolves to external_api_call', () => {
     const result = classify('Call API', 'external_api', 0.5);
+    assert.equal(result.activityType, 'external_api_call');
     assert.equal(result.riskScore, 6);
   });
 

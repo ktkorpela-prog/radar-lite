@@ -1,6 +1,6 @@
 {
   "name": "@essentianlabs/radar-lite",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Local risk assessment for AI agents. Vela Lite runs on your machine.",
   "type": "module",
   "main": "src/index.js",

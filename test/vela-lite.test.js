@@ -31,9 +31,9 @@ describe('assess() — no LLM key flows', () => {
 
   it('low risk without key returns oneliner mode', async () => {
     const { default: radar } = await import('../src/index.js');
-    radar.configure({ activities: { external_api: 0.5 } });
+    radar.configure({ activities: { external_api_call: 0.5 } });
 
-    const result = await radar.assess('Read internal config from disk', 'external_api');
+    const result = await radar.assess('Read internal config from disk', 'external_api_call');
     assert.equal(result.t2Attempted, false);
     assert.equal(result.promptMode, 'oneliner');
     assert.equal(result.tier, 1);

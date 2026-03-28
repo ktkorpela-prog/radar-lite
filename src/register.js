@@ -157,6 +157,24 @@ export async function stats() {
   };
 }
 
+export async function findPriorDecision(actionHash) {
+  const db = await ensureDb();
+  const result = db.exec(
+    `SELECT verdict, chosen_strategy FROM assessments
+     WHERE action_hash = ? AND verdict != 'PENDING'
+     ORDER BY created_at DESC LIMIT 1`,
+    [actionHash]
+  );
+  const rows = rowsToObjects(result);
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    verdict: row.verdict,
+    outcome: row.chosen_strategy ? `strategy: ${row.chosen_strategy}` : null,
+    notes: null
+  };
+}
+
 export async function updateVerdict(callId, verdict) {
   const db = await ensureDb();
   db.run('UPDATE assessments SET verdict = ? WHERE id = ?', [verdict, callId]);

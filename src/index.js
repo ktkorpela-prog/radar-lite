@@ -124,6 +124,9 @@ export async function assess(action, activityType, options = {}) {
   const wouldEscalate = scored.wouldEscalate;
   const escalateTier = scored.escalateTier;
 
+  // Look up prior decision for this action hash
+  const priorDecision = await register.findPriorDecision(actionHash);
+
   // Determine prompt mode from threshold
   const thresholds = getThresholds(sliderPosition);
   const promptMode = scored.riskScore < thresholds.t2 ? 'oneliner' : 'tldr';
@@ -157,7 +160,7 @@ export async function assess(action, activityType, options = {}) {
   try {
     const vela = await assessVela(
       action, scored.activityType, scored.riskScore, scored.triggerReason,
-      sliderPosition, promptMode, config
+      sliderPosition, promptMode, config, priorDecision
     );
 
     log('info', vela.formatted);

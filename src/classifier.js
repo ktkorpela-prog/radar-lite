@@ -2,14 +2,14 @@ import { DEFAULT_SLIDER, ACTIVITY_TYPES, resolveActivityType } from './constants
 
 const BASE_SCORES = {
   email_single:       { likelihood: 3, consequence: 4 },   // score 12
-  email_bulk:         { likelihood: 4, consequence: 4 },   // score 16 (+3 effective vs email_single base 12→15 area)
+  email_bulk:         { likelihood: 4, consequence: 4 },   // score 16
   publish:            { likelihood: 3, consequence: 3 },   // score 9
   data_read:          { likelihood: 1, consequence: 2 },   // score 2
   data_write:         { likelihood: 2, consequence: 3 },   // score 6
   data_delete_single: { likelihood: 3, consequence: 5 },   // score 15
-  data_delete_bulk:   { likelihood: 4, consequence: 5 },   // score 20 (+4 effective vs single base 15→19 area)
+  data_delete_bulk:   { likelihood: 4, consequence: 5 },   // score 20
   web_search:         { likelihood: 1, consequence: 1 },   // score 1
-  external_api:       { likelihood: 2, consequence: 3 },   // score 6
+  external_api_call:  { likelihood: 2, consequence: 3 },   // score 6
   system_execute:     { likelihood: 3, consequence: 5 },   // score 15
   system_files:       { likelihood: 3, consequence: 4 },   // score 12
   financial:          { likelihood: 3, consequence: 5 },   // score 15
