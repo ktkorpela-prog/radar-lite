@@ -133,7 +133,9 @@ export function startDashboard(port = 4040) {
       for (const c of configs) {
         activityConfig[c.activity_type] = {
           slider: c.slider_position ?? 0.5,
-          human_review: !!c.requires_human_review
+          human_review: !!c.requires_human_review,
+          hold_action: c.hold_action || 'halt',
+          notify_url: c.notify_url || null
         };
       }
 
@@ -309,18 +311,33 @@ export function startDashboard(port = 4040) {
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
   app.post('/radar/config', async (req, res) => {
     try {
-      const { activities, human_review } = req.body;
+      const { activities, human_review, hold_actions, notify_urls } = req.body;
       if (activities) {
         for (const [type, value] of Object.entries(activities)) {
           const slider = typeof value === 'number' ? value : 0.5;
           const hr = human_review && human_review[type] ? true : false;
+          const ha = hold_actions && hold_actions[type] ? hold_actions[type] : undefined;
+          const nu = notify_urls && notify_urls[type] ? notify_urls[type] : undefined;
           await register.saveActivityConfig(type, {
             sliderPosition: slider,
-            requiresHumanReview: hr
+            requiresHumanReview: hr,
+            holdAction: ha,
+            notifyUrl: nu
           });
         }
       }
       res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/dashboard/config-history', async (req, res) => {
+    try {
+      const activityType = req.query.activity_type;
+      if (!activityType) return res.json({ history: [] });
+      const history = await register.getConfigHistory(activityType);
+      res.json({ history });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

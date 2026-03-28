@@ -84,6 +84,11 @@ export async function assess(action, activityType, options = {}) {
   // Resolve deprecated types
   const resolvedType = resolveActivityType(activityType);
 
+  // Load activity config early — needed for holdAction on all HOLD paths
+  const activityConfig = await register.getActivityConfig(resolvedType);
+  const holdAction = activityConfig?.hold_action || 'halt';
+  const notifyUrl = holdAction === 'notify' ? (activityConfig?.notify_url || null) : null;
+
   // Check trigger policy first
   const policyDecision = await register.checkPolicy(action, agentId);
 
@@ -103,7 +108,8 @@ export async function assess(action, activityType, options = {}) {
       promptMode: null, t2Attempted: false,
       wouldEscalate: false, escalateTier: null,
       parseFailed: false, policyDecision: 'human_required',
-      radarEnabled: true, reason: 'Trigger policy requires human approval'
+      radarEnabled: true, reason: 'Trigger policy requires human approval',
+      holdAction, notifyUrl
     };
   }
 
@@ -128,7 +134,6 @@ export async function assess(action, activityType, options = {}) {
   }
 
   // Check activity-level human review requirement
-  const activityConfig = await register.getActivityConfig(resolvedType);
   if (activityConfig && activityConfig.requires_human_review) {
     const callId = register.generateCallId();
     const actionHash = register.hashAction(action);
@@ -145,7 +150,8 @@ export async function assess(action, activityType, options = {}) {
       promptMode: null, t2Attempted: false,
       wouldEscalate: false, escalateTier: null,
       parseFailed: false, policyDecision: 'human_required',
-      radarEnabled: true, reason: 'Activity type requires human review'
+      radarEnabled: true, reason: 'Activity type requires human review',
+      holdAction, notifyUrl
     };
   }
 
@@ -206,7 +212,7 @@ export async function assess(action, activityType, options = {}) {
     log('info', vela.formatted);
     await register.updateVerdict(callId, vela.verdict);
 
-    return {
+    const result = {
       proceed: vela.verdict === 'PROCEED', tier, verdict: vela.verdict,
       riskScore: scored.riskScore, triggerReason: scored.triggerReason,
       activityType: scored.activityType, callId,
@@ -216,6 +222,11 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: vela.parseFailed, policyDecision: 'assess',
       radarEnabled: true
     };
+    if (vela.verdict === 'HOLD') {
+      result.holdAction = holdAction;
+      result.notifyUrl = notifyUrl;
+    }
+    return result;
   } catch (err) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (Vela Lite call failed: ${err.message})`);

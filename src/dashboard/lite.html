@@ -1662,6 +1662,8 @@ const DEFAULT_ACTIVITY_KEYS = ACTIVITY_TYPES.map(a => a.key);
 const DEPRECATED_TYPES = { email: 'email_single', publishing: 'publish', data_deletion: 'data_delete_single', external_api: 'external_api_call' };
 let activityConfig = {};
 let humanReviewConfig = {};
+let holdActionConfig = {};
+let notifyUrlConfig = {};
 
 async function loadActivityConfig() {
   try {
@@ -1669,6 +1671,8 @@ async function loadActivityConfig() {
     const d = await r.json();
     activityConfig = {};
     humanReviewConfig = {};
+    holdActionConfig = {};
+    notifyUrlConfig = {};
     for (const a of ACTIVITY_TYPES) activityConfig[a.key] = a.default;
     if (d.activity_config) {
       for (const [k, v] of Object.entries(d.activity_config)) {
@@ -1676,6 +1680,8 @@ async function loadActivityConfig() {
         const mapped = DEPRECATED_TYPES[k] || k;
         activityConfig[mapped] = typeof v === 'object' ? (v.slider ?? 0.5) : v;
         if (typeof v === 'object' && v.human_review) humanReviewConfig[mapped] = true;
+        if (typeof v === 'object' && v.hold_action) holdActionConfig[mapped] = v.hold_action;
+        if (typeof v === 'object' && v.notify_url) notifyUrlConfig[mapped] = v.notify_url;
       }
     }
     if (d.human_review_config) {
@@ -1705,6 +1711,10 @@ function renderActivitySliders() {
     const examples = typeInfo?.examples || [];
     const examplesHtml = examples.length ? `<div class="slider-examples">${examples.map(e => '"' + e + '"').join(' · ')}</div>` : '';
 
+    const ha = holdActionConfig[activity] || 'halt';
+    const nu = notifyUrlConfig[activity] || '';
+    const notifyVis = ha === 'notify' ? '' : 'display:none;';
+
     html += `<div class="slider-row${hrClass}" id="slider-row-${activity}">
       <div class="slider-label-col"><span class="slider-label">${label}${badge}</span>${examplesHtml}</div>
       <div class="slider-track"><span class="slider-bound">Permissive</span><input type="range" min="0" max="1" step="0.5" value="${value}" class="activity-slider" data-activity="${activity}" onchange="onSliderChange(this)" oninput="updateSliderLabel(this)"><span class="slider-bound">Conservative</span></div>
@@ -1716,6 +1726,19 @@ function renderActivitySliders() {
       </label>
       <span class="slider-saved" id="saved-${activity}">Saved</span>
       ${deleteBtn}
+    </div>
+    <div style="padding:0 0 8px 220px;font-size:11px;color:#666;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="color:#909090">On HOLD:</span>
+      <select style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:3px;padding:2px 6px;color:#c0bdb8;font-size:11px" data-activity="${activity}" onchange="onHoldActionChange(this)">
+        <option value="halt" ${ha==='halt'?'selected':''}>Halt</option>
+        <option value="queue" ${ha==='queue'?'selected':''}>Queue</option>
+        <option value="log_only" ${ha==='log_only'?'selected':''}>Log only</option>
+        <option value="notify" ${ha==='notify'?'selected':''}>Notify</option>
+      </select>
+      <span id="ha-hint-${activity}" style="color:#555;font-size:10px">${holdActionHint(ha)}</span>
+      <input type="text" id="notify-url-${activity}" value="${nu}" placeholder="https://your-webhook.com" style="${notifyVis}background:#0d0d0d;border:1px solid #2a2a2a;border-radius:3px;padding:2px 6px;color:#c0bdb8;font-size:11px;width:220px" data-activity="${activity}" onchange="onNotifyUrlChange(this)">
+      <span id="ha-history-${activity}" style="color:#555;font-size:10px;cursor:pointer;text-decoration:underline" onclick="toggleConfigHistory('${activity}')" style="display:none"></span>
+      <div id="ha-history-list-${activity}" style="display:none;font-size:10px;color:#555;padding:4px 0;width:100%"></div>
     </div>`;
   }
   html += `<button class="add-activity-btn" onclick="showAddActivity()">+ Add custom activity</button>`;
@@ -1737,7 +1760,42 @@ async function onHumanReviewToggle(el) {
   await saveActivityConfig();
   showSaved(act);
 }
-async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig }) }); } catch (e) { console.error('Config save error', e); } }
+function holdActionHint(ha) {
+  const hints = {
+    halt: 'Halt — agent stops, handle manually',
+    queue: 'Queue — signals your code to add to a review queue. No queue built into RADAR.',
+    log_only: 'Log only — log the HOLD and proceed. You accept the risk.',
+    notify: 'Notify — returns notifyUrl for your code to send. RADAR does not make outbound calls.'
+  };
+  return hints[ha] || '';
+}
+async function onHoldActionChange(el) {
+  const act = el.dataset.activity;
+  holdActionConfig[act] = el.value;
+  document.getElementById('ha-hint-' + act).textContent = holdActionHint(el.value);
+  const notifyInput = document.getElementById('notify-url-' + act);
+  if (notifyInput) notifyInput.style.display = el.value === 'notify' ? '' : 'none';
+  await saveActivityConfig();
+  showSaved(act, 'Hold action saved');
+}
+async function onNotifyUrlChange(el) {
+  const act = el.dataset.activity;
+  notifyUrlConfig[act] = el.value.trim();
+  await saveActivityConfig();
+  showSaved(act, 'Notify URL saved');
+}
+async function toggleConfigHistory(activity) {
+  const list = document.getElementById('ha-history-list-' + activity);
+  if (list.style.display !== 'none') { list.style.display = 'none'; return; }
+  try {
+    const r = await fetch(`${BASE}/dashboard/config-history?activity_type=${activity}`);
+    const d = await r.json();
+    if (!d.history || !d.history.length) { list.innerHTML = '<span style="color:#555">No changes recorded</span>'; }
+    else { list.innerHTML = d.history.map(h => `<div>${h.previous_value || '(none)'} → ${h.new_value} — ${new Date(h.changed_at).toLocaleString()}</div>`).join(''); }
+    list.style.display = 'block';
+  } catch (e) { list.innerHTML = '<span style="color:#555">Could not load history</span>'; list.style.display = 'block'; }
+}
+async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig, hold_actions: holdActionConfig, notify_urls: notifyUrlConfig }) }); } catch (e) { console.error('Config save error', e); } }
 function showSaved(activity, text) { const el = document.getElementById('saved-' + activity); if (!el) return; el.textContent = text || 'Saved'; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2000); }
 function validateActivityName(input) { const err = document.getElementById('add-activity-error'); if (/[^a-z0-9_]/.test(input.value)) err.textContent = 'Lowercase letters, numbers, and underscores only'; else if (activityConfig[input.value] !== undefined) err.textContent = 'Activity already exists'; else err.textContent = ''; }
 function showAddActivity() { const f = document.getElementById('add-activity-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; if (f.style.display === 'block') document.getElementById('new-activity-input').focus(); }

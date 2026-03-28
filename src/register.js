@@ -69,8 +69,25 @@ async function ensureDb() {
       activity_type TEXT PRIMARY KEY,
       slider_position REAL,
       requires_human_review INTEGER DEFAULT 0,
+      hold_action TEXT DEFAULT 'halt',
+      notify_url TEXT DEFAULT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )
+  `);
+  // Migration: add hold_action and notify_url if upgrading
+  try { db.run('ALTER TABLE activity_config ADD COLUMN hold_action TEXT DEFAULT \'halt\''); } catch (e) {}
+  try { db.run('ALTER TABLE activity_config ADD COLUMN notify_url TEXT DEFAULT NULL'); } catch (e) {}
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS activity_config_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      activity_type TEXT NOT NULL,
+      changed_field TEXT NOT NULL,
+      previous_value TEXT,
+      new_value TEXT NOT NULL,
+      changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      agent_id TEXT
     )
   `);
 
@@ -267,23 +284,65 @@ export async function getActivityConfig(activityType) {
   return rows[0] || null;
 }
 
-export async function saveActivityConfig(activityType, config) {
+function trimConfigHistory(db, activityType, changedField) {
+  // Keep only the 5 most recent records per activity_type + changed_field
+  db.run(
+    `DELETE FROM activity_config_history WHERE id NOT IN (
+      SELECT id FROM activity_config_history
+      WHERE activity_type = ? AND changed_field = ?
+      ORDER BY changed_at DESC LIMIT 5
+    ) AND activity_type = ? AND changed_field = ?`,
+    [activityType, changedField, activityType, changedField]
+  );
+}
+
+function recordConfigChange(db, activityType, field, previousValue, newValue, agentId) {
+  if (String(previousValue) === String(newValue)) return;
+  db.run(
+    `INSERT INTO activity_config_history (activity_type, changed_field, previous_value, new_value, agent_id) VALUES (?, ?, ?, ?, ?)`,
+    [activityType, field, previousValue, newValue, agentId || null]
+  );
+  trimConfigHistory(db, activityType, field);
+}
+
+export async function saveActivityConfig(activityType, config, agentId = null) {
   const db = await ensureDb();
   const now = new Date().toISOString();
   const existing = await getActivityConfig(activityType);
 
+  const newSlider = config.sliderPosition ?? existing?.slider_position ?? null;
+  const newHR = config.requiresHumanReview ? 1 : 0;
+  const newHoldAction = config.holdAction ?? existing?.hold_action ?? 'halt';
+  const newNotifyUrl = config.notifyUrl ?? existing?.notify_url ?? null;
+
   if (existing) {
+    // Track changes to hold_action and notify_url
+    if (existing.hold_action !== newHoldAction) {
+      recordConfigChange(db, activityType, 'hold_action', existing.hold_action, newHoldAction, agentId);
+    }
+    if (existing.notify_url !== newNotifyUrl) {
+      recordConfigChange(db, activityType, 'notify_url', existing.notify_url, newNotifyUrl, agentId);
+    }
     db.run(
-      `UPDATE activity_config SET slider_position = ?, requires_human_review = ?, updated_at = ? WHERE activity_type = ?`,
-      [config.sliderPosition ?? existing.slider_position, config.requiresHumanReview ? 1 : 0, now, activityType]
+      `UPDATE activity_config SET slider_position = ?, requires_human_review = ?, hold_action = ?, notify_url = ?, updated_at = ? WHERE activity_type = ?`,
+      [newSlider, newHR, newHoldAction, newNotifyUrl, now, activityType]
     );
   } else {
     db.run(
-      `INSERT INTO activity_config (activity_type, slider_position, requires_human_review, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-      [activityType, config.sliderPosition ?? null, config.requiresHumanReview ? 1 : 0, now, now]
+      `INSERT INTO activity_config (activity_type, slider_position, requires_human_review, hold_action, notify_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [activityType, newSlider, newHR, newHoldAction, newNotifyUrl, now, now]
     );
   }
   persistDb();
+}
+
+export async function getConfigHistory(activityType) {
+  const db = await ensureDb();
+  const result = db.exec(
+    `SELECT * FROM activity_config_history WHERE activity_type = ? ORDER BY changed_at DESC LIMIT 10`,
+    [activityType]
+  );
+  return rowsToObjects(result);
 }
 
 export async function listActivityConfigs() {

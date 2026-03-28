@@ -156,3 +156,53 @@ describe('assess() — RADAR disabled', () => {
     delete process.env.RADAR_ENABLED;
   });
 });
+
+describe('assess() — holdAction', () => {
+
+  it('defaults to holdAction halt on HOLD verdict', async () => {
+    const { default: radar } = await import('../src/index.js');
+    const { savePolicy } = await import('../src/register.js');
+    radar.configure({});
+
+    await savePolicy('*dangerous*', 'human_required');
+    const result = await radar.assess('dangerous operation', 'financial');
+    assert.equal(result.verdict, 'HOLD');
+    assert.equal(result.holdAction, 'halt');
+    assert.equal(result.notifyUrl, null);
+  });
+
+  it('holdAction not present on PROCEED verdict', async () => {
+    const { default: radar } = await import('../src/index.js');
+    radar.configure({ activities: { web_search: 0.0 } });
+
+    const result = await radar.assess('search for docs', 'web_search');
+    assert.equal(result.verdict, 'PROCEED');
+    assert.equal(result.holdAction, undefined);
+    assert.equal(result.notifyUrl, undefined);
+  });
+
+  it('returns configured holdAction and notifyUrl on HOLD', async () => {
+    const { default: radar } = await import('../src/index.js');
+    const { saveActivityConfig, savePolicy } = await import('../src/register.js');
+    radar.configure({});
+
+    await saveActivityConfig('financial', { holdAction: 'notify', notifyUrl: 'https://example.com/hook' });
+    await savePolicy('*refund*', 'human_required');
+    const result = await radar.assess('process refund', 'financial');
+    assert.equal(result.verdict, 'HOLD');
+    assert.equal(result.holdAction, 'notify');
+    assert.equal(result.notifyUrl, 'https://example.com/hook');
+  });
+
+  it('config history trims to 5 records', async () => {
+    const { saveActivityConfig, getConfigHistory } = await import('../src/register.js');
+
+    // Write 7 changes
+    for (let i = 0; i < 7; i++) {
+      await saveActivityConfig('test_trim_type', { holdAction: `action_${i}` });
+    }
+    const history = await getConfigHistory('test_trim_type');
+    const holdChanges = history.filter(h => h.changed_field === 'hold_action');
+    assert.ok(holdChanges.length <= 5, `Expected <= 5 history records, got ${holdChanges.length}`);
+  });
+});

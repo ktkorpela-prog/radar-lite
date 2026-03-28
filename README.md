@@ -115,7 +115,9 @@ Every call to `radar.assess()` follows this flow:
   escalateTier: null | 3 | 4,
   parseFailed: true | false,
   policyDecision: "assess" | "human_required" | "no_assessment",
-  radarEnabled: true | false     // false when RADAR_ENABLED=false
+  radarEnabled: true | false,    // false when RADAR_ENABLED=false
+  holdAction: "halt",            // only on HOLD — configured response
+  notifyUrl: null                // only when holdAction is 'notify'
 }
 ```
 
@@ -154,6 +156,45 @@ await radar.saveActivityConfig('system_execute', {
 await radar.saveActivityConfig('financial', {
   sliderPosition: 0.95,
   requiresHumanReview: false
+});
+```
+
+## Hold Actions
+
+When `verdict` is `HOLD`, the return object includes `holdAction` telling your code what the configured response is:
+
+| holdAction | Meaning | Your code should |
+|------------|---------|-----------------|
+| `halt` | Agent stops (default) | Stop execution, wait for manual handling |
+| `queue` | Queue for review | Add to your review queue — no queue is built into RADAR |
+| `log_only` | Log and proceed | Log the HOLD, continue execution — you accept the risk |
+| `notify` | Send notification + halt | Send to `result.notifyUrl`, then halt |
+
+```javascript
+const result = await radar.assess('Delete all records', 'data_delete_bulk');
+
+if (!result.proceed) {
+  if (result.holdAction === 'notify' && result.notifyUrl) {
+    await fetch(result.notifyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ callId: result.callId, verdict: result.verdict })
+    });
+  }
+  if (result.holdAction !== 'log_only') return; // halt or queue
+}
+```
+
+`holdAction: 'notify'` returns the configured `notifyUrl` in the assess result. The package does not make outbound calls — your code sends the notification.
+
+All activity types default to `holdAction: 'halt'` until configured. Changes to holdAction are logged with timestamps. The last 5 changes per activity type are retained in the local risk register.
+
+Configure via dashboard Settings tab or programmatically:
+
+```javascript
+await radar.saveActivityConfig('data_delete_bulk', {
+  holdAction: 'notify',
+  notifyUrl: 'https://your-app.com/escalation'
 });
 ```
 
