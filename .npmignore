@@ -4,3 +4,8 @@ scripts/
 .env
 .env.*
 node_modules/
+.radar/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

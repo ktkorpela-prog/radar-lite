@@ -111,6 +111,7 @@ export function startDashboard(port = 4040) {
     });
   });
 
+  // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
   app.post('/dashboard/llm-config', (req, res) => {
     const { provider, api_key } = req.body;
 
@@ -145,6 +146,7 @@ export function startDashboard(port = 4040) {
     res.json({ enabled });
   });
 
+  // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
   app.post('/dashboard/radar-enabled', (req, res) => {
     const { enabled } = req.body;
     const env = readEnv();
@@ -164,7 +166,7 @@ export function startDashboard(port = 4040) {
     res.sendFile(join(__dirname, 'index.html'));
   });
 
-  const server = app.listen(port, () => {
+  const server = app.listen(port, '127.0.0.1', () => {
     console.log(`\n  VELA LITE · local risk register`);
     console.log(`  Dashboard: http://localhost:${port}/lite`);
     console.log(`  Press Ctrl+C to stop\n`);
