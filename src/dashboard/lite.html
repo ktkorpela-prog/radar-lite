@@ -1109,17 +1109,11 @@ function renderRecentTable(calls) {
 
 // ─── Call Log ───
 async function loadCalls() {
-  if (subscriberPlan !== 'paid') {
-    document.getElementById('calls-content').innerHTML = '<div class="upgrade-msg">Upgrade to paid to view full call history</div>';
-    return;
-  }
+  // Lite dashboard — call log always available (local data)
   try {
     const r = await fetch(`${BASE}/dashboard/calls${agentParam()}`, { headers: authHeaders() });
     const d = await r.json();
-    if (d.upgrade_required) {
-      document.getElementById('calls-content').innerHTML = '<div class="upgrade-msg">Upgrade to paid to view full call history</div>';
-      return;
-    }
+    // Lite — no upgrade gate, all local data
     callsData = d.calls;
     const colCount = 13;
     let html = '<div class="table-container"><table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Action</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Models</th><th>Vela</th><th>Outcome</th><th>Response</th></tr></thead><tbody>';
