@@ -3,6 +3,8 @@ import { VelaLite, assessVela } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
 import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, resolveActivityType } from './constants.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 
 let config = {
   llmKey: null,
@@ -35,12 +37,49 @@ export function configure(options = {}) {
   });
 }
 
+function isRadarEnabled() {
+  // Check process.env first (set by dashboard toggle)
+  if (process.env.RADAR_ENABLED === 'false') return false;
+  // Check .radar/.env file
+  const envPath = join(process.cwd(), '.radar', '.env');
+  if (existsSync(envPath)) {
+    const content = readFileSync(envPath, 'utf-8');
+    const match = content.match(/^RADAR_ENABLED\s*=\s*(.+)$/m);
+    if (match && match[1].trim().toLowerCase() === 'false') return false;
+  }
+  return true;
+}
+
 export async function checkPolicy(action, agentId = null) {
   return register.checkPolicy(action, agentId);
 }
 
 export async function assess(action, activityType, options = {}) {
   const agentId = options.agentId || null;
+
+  // Check if RADAR is enabled
+  if (!isRadarEnabled()) {
+    const resolvedType = resolveActivityType(activityType);
+    const callId = register.generateCallId();
+    const actionHash = register.hashAction(action);
+    await register.save({
+      callId, actionHash, activityType: resolvedType,
+      tier: null, riskScore: null, verdict: 'PROCEED',
+      policyDecision: null, radarEnabled: false
+    });
+    log('info', `${T1_LABEL} | PROCEED | RADAR disabled by configuration | ${resolvedType}`);
+    return {
+      proceed: true, verdict: 'PROCEED', tier: null,
+      riskScore: null, triggerReason: null,
+      activityType: resolvedType, callId,
+      vela: null, options: null, recommended: null,
+      promptMode: null, t2Attempted: false,
+      wouldEscalate: false, escalateTier: null,
+      parseFailed: false, policyDecision: null,
+      radarEnabled: false,
+      reason: 'RADAR disabled by configuration'
+    };
+  }
 
   // Resolve deprecated types
   const resolvedType = resolveActivityType(activityType);
@@ -64,7 +103,7 @@ export async function assess(action, activityType, options = {}) {
       promptMode: null, t2Attempted: false,
       wouldEscalate: false, escalateTier: null,
       parseFailed: false, policyDecision: 'human_required',
-      reason: 'Trigger policy requires human approval'
+      radarEnabled: true, reason: 'Trigger policy requires human approval'
     };
   }
 
@@ -84,7 +123,7 @@ export async function assess(action, activityType, options = {}) {
       promptMode: null, t2Attempted: false,
       wouldEscalate: false, escalateTier: null,
       parseFailed: false, policyDecision: 'no_assessment',
-      reason: 'Trigger policy: no assessment needed'
+      radarEnabled: true, reason: 'Trigger policy: no assessment needed'
     };
   }
 
@@ -106,7 +145,7 @@ export async function assess(action, activityType, options = {}) {
       promptMode: null, t2Attempted: false,
       wouldEscalate: false, escalateTier: null,
       parseFailed: false, policyDecision: 'human_required',
-      reason: 'Activity type requires human review'
+      radarEnabled: true, reason: 'Activity type requires human review'
     };
   }
 
@@ -152,7 +191,8 @@ export async function assess(action, activityType, options = {}) {
       options: null, recommended: null,
       promptMode, t2Attempted: false,
       wouldEscalate, escalateTier,
-      parseFailed: false, policyDecision: 'assess'
+      parseFailed: false, policyDecision: 'assess',
+      radarEnabled: true
     };
   }
 
@@ -173,7 +213,8 @@ export async function assess(action, activityType, options = {}) {
       vela: vela.formatted, options: vela.options, recommended: vela.recommended,
       promptMode, t2Attempted: true,
       wouldEscalate, escalateTier,
-      parseFailed: vela.parseFailed, policyDecision: 'assess'
+      parseFailed: vela.parseFailed, policyDecision: 'assess',
+      radarEnabled: true
     };
   } catch (err) {
     const formatted = formatRulesOneliner(scored);
@@ -188,7 +229,8 @@ export async function assess(action, activityType, options = {}) {
       options: null, recommended: null,
       promptMode, t2Attempted: false,
       wouldEscalate, escalateTier,
-      parseFailed: false, policyDecision: 'assess'
+      parseFailed: false, policyDecision: 'assess',
+      radarEnabled: true
     };
   }
 }

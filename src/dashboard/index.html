@@ -256,6 +256,7 @@
 <body>
 <div class="container">
 
+  <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:4px;font-size:12px;font-family:'Space Mono',monospace;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
   <div class="header">
     <h1>VELA LITE</h1>
     <span class="subtitle">local risk register</span>
@@ -334,6 +335,14 @@ async function load() {
     document.getElementById('stat-activity').textContent = stats.topActivity || '—';
 
     renderHistory(history);
+
+    // Check RADAR enabled status
+    try {
+      const re = await fetch(`${API}/dashboard/radar-enabled`);
+      const rd = await re.json();
+      const banner = document.getElementById('radar-disabled-banner');
+      if (banner) banner.style.display = rd.enabled ? 'none' : 'block';
+    } catch (e) {}
   } catch (err) {
     document.getElementById('history-body').innerHTML =
       `<tr><td colspan="6" class="empty">Could not connect to local API</td></tr>`;

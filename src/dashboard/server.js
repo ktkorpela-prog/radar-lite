@@ -137,6 +137,23 @@ export function startDashboard(port = 4040) {
     res.json({ success: true });
   });
 
+  // --- RADAR enabled toggle ---
+
+  app.get('/dashboard/radar-enabled', (req, res) => {
+    const env = readEnv();
+    const enabled = (env.RADAR_ENABLED || process.env.RADAR_ENABLED || 'true').toLowerCase() !== 'false';
+    res.json({ enabled });
+  });
+
+  app.post('/dashboard/radar-enabled', (req, res) => {
+    const { enabled } = req.body;
+    const env = readEnv();
+    env.RADAR_ENABLED = enabled ? 'true' : 'false';
+    writeEnv(env);
+    process.env.RADAR_ENABLED = enabled ? 'true' : 'false';
+    res.json({ success: true, enabled: !!enabled });
+  });
+
   // --- Serve dashboard pages ---
 
   app.get('/lite', (req, res) => {

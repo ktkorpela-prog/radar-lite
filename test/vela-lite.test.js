@@ -118,3 +118,41 @@ describe('assess() — activity human review toggle', () => {
     assert.equal(result.vela, null);
   });
 });
+
+describe('assess() — RADAR disabled', () => {
+
+  it('returns PROCEED immediately when RADAR_ENABLED=false', async () => {
+    process.env.RADAR_ENABLED = 'false';
+    const { default: radar } = await import('../src/index.js');
+    radar.configure({});
+
+    const result = await radar.assess('Delete everything', 'data_delete_bulk');
+    assert.equal(result.proceed, true);
+    assert.equal(result.verdict, 'PROCEED');
+    assert.equal(result.radarEnabled, false);
+    assert.equal(result.tier, null);
+    assert.equal(result.riskScore, null);
+    assert.equal(result.vela, null);
+    assert.equal(result.t2Attempted, false);
+    assert.ok(result.callId.startsWith('ra_'));
+
+    // Clean up
+    delete process.env.RADAR_ENABLED;
+  });
+
+  it('logs bypass event to register when disabled', async () => {
+    process.env.RADAR_ENABLED = 'false';
+    const { default: radar } = await import('../src/index.js');
+    const { history } = await import('../src/register.js');
+    radar.configure({});
+
+    const result = await radar.assess('Do something risky', 'financial');
+    const records = await history(1);
+    assert.ok(records.length > 0);
+    assert.equal(records[0].id, result.callId);
+    assert.equal(records[0].verdict, 'PROCEED');
+    assert.equal(records[0].radar_enabled, 0);
+
+    delete process.env.RADAR_ENABLED;
+  });
+});

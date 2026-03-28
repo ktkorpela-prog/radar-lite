@@ -114,7 +114,8 @@ Every call to `radar.assess()` follows this flow:
   wouldEscalate: true | false,
   escalateTier: null | 3 | 4,
   parseFailed: true | false,
-  policyDecision: "assess" | "human_required" | "no_assessment"
+  policyDecision: "assess" | "human_required" | "no_assessment",
+  radarEnabled: true | false     // false when RADAR_ENABLED=false
 }
 ```
 
@@ -155,6 +156,17 @@ await radar.saveActivityConfig('financial', {
   requiresHumanReview: false
 });
 ```
+
+## Disabling RADAR
+
+You can disable RADAR assessment by setting `RADAR_ENABLED=false` in your `.radar/.env` file, or via the dashboard Settings tab. When disabled, `radar.assess()` returns PROCEED immediately without calling Vela. All bypass events are recorded in the local risk register regardless of this setting.
+
+```bash
+# In .radar/.env
+RADAR_ENABLED=false
+```
+
+The return object includes `radarEnabled: false` when assessment is bypassed.
 
 ## Slider positions
 

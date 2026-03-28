@@ -314,6 +314,7 @@
 
 <!-- Dashboard -->
 <div id="dashboard">
+  <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:500;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
   <div class="header">
     <div>
       <h1>RADAR</h1>
@@ -353,6 +354,7 @@
       <div class="stat-card t3"><div class="label">T3</div><div class="value" id="stat-t3">0</div></div>
       <div class="stat-card t4"><div class="label">T4</div><div class="value" id="stat-t4">0</div></div>
       <div class="stat-card"><div class="label">This Month</div><div class="value" id="stat-month" style="color:#c4943a">0</div></div>
+      <div class="stat-card" id="stat-disabled-card" style="display:none"><div class="label">Bypassed</div><div class="value" id="stat-disabled" style="color:#909090">0</div><div style="font-size:11px;color:#666;margin-top:4px">RADAR disabled</div></div>
     </div>
 
     <div id="agent-cards-panel"></div>
@@ -403,6 +405,16 @@
 
   <!-- Settings -->
   <div class="tab-panel" id="panel-settings">
+    <div class="settings-section">
+      <h3>Enable RADAR Assessment</h3>
+      <div class="setting-row">
+        <span class="setting-label">RADAR assessment is <strong id="radar-status-text">enabled</strong></span>
+        <label class="hr-toggle">
+          <input type="checkbox" id="radar-enabled-toggle" checked onchange="toggleRadarEnabled(this.checked)">
+          <span class="hr-switch"></span>
+        </label>
+      </div>
+    </div>
     <div class="settings-section">
       <h3>Activity Slider Config</h3>
       <div id="config-section"></div>
@@ -512,7 +524,36 @@ function enterDashboard() {
     loadAgents();
     loadStats();
     loadSettings();
+    checkRadarEnabled();
   }, 400);
+}
+
+async function checkRadarEnabled() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/radar-enabled`);
+    const d = await r.json();
+    const banner = document.getElementById('radar-disabled-banner');
+    const toggle = document.getElementById('radar-enabled-toggle');
+    const statusText = document.getElementById('radar-status-text');
+    if (banner) banner.style.display = d.enabled ? 'none' : 'block';
+    if (toggle) toggle.checked = d.enabled;
+    if (statusText) { statusText.textContent = d.enabled ? 'enabled' : 'disabled'; statusText.style.color = d.enabled ? '#4ade80' : '#f87171'; }
+  } catch (e) {}
+}
+
+async function toggleRadarEnabled(enabled) {
+  if (!enabled && !confirm('RADAR will be disabled. All agent actions will proceed without assessment. Bypass events are logged.')) {
+    document.getElementById('radar-enabled-toggle').checked = true;
+    return;
+  }
+  try {
+    await fetch(`${BASE}/dashboard/radar-enabled`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    checkRadarEnabled();
+  } catch (e) { console.error('Toggle error', e); }
 }
 
 function logout() {
@@ -752,6 +793,14 @@ async function loadStats() {
     document.getElementById('stat-t3').textContent = d.by_tier[3] || 0;
     document.getElementById('stat-t4').textContent = d.by_tier[4] || 0;
     document.getElementById('stat-month').textContent = d.calls_this_month || 0;
+
+    // Show disabled count if any
+    const disabledCount = d.disabled || 0;
+    const disabledCard = document.getElementById('stat-disabled-card');
+    if (disabledCard) {
+      disabledCard.style.display = disabledCount > 0 ? '' : 'none';
+      document.getElementById('stat-disabled').textContent = disabledCount;
+    }
 
     // Derive per_day_by_agent from recent calls if backend doesn't provide it
     let perDayByAgent = d.per_day_by_agent;
@@ -1039,7 +1088,7 @@ function renderBoxPlot(perDayByAgent) {
 }
 
 // ─── Tables ───
-function tierBadge(tier) { return `<span class="tier-badge tier-${tier}">T${tier}</span>`; }
+function tierBadge(tier, radarEnabled) { if (radarEnabled === 0 || radarEnabled === false) return `<span class="tier-badge" style="background:#2a2a2a;color:#909090">DISABLED</span>`; return `<span class="tier-badge tier-${tier}">T${tier}</span>`; }
 
 function renderRecentTable(calls) {
   if (!calls || !calls.length) {

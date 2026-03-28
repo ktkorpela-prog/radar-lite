@@ -37,16 +37,19 @@ async function ensureDb() {
       id TEXT PRIMARY KEY,
       action_hash TEXT NOT NULL,
       activity_type TEXT NOT NULL,
-      tier INTEGER NOT NULL,
-      risk_score INTEGER NOT NULL,
+      tier INTEGER,
+      risk_score INTEGER,
       verdict TEXT NOT NULL,
       chosen_strategy TEXT,
       decided_by TEXT,
       vela_overridden INTEGER,
       policy_decision TEXT,
+      radar_enabled INTEGER DEFAULT 1,
       created_at TEXT NOT NULL
     )
   `);
+  // Migration: add radar_enabled column if upgrading from older schema
+  try { db.run('ALTER TABLE assessments ADD COLUMN radar_enabled INTEGER DEFAULT 1'); } catch (e) {}
   db.run('CREATE INDEX IF NOT EXISTS idx_activity ON assessments(activity_type)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tier ON assessments(tier)');
   db.run('CREATE INDEX IF NOT EXISTS idx_created ON assessments(created_at)');
@@ -106,8 +109,8 @@ function singleValue(result) {
 export async function save(assessment) {
   const db = await ensureDb();
   db.run(
-    `INSERT INTO assessments (id, action_hash, activity_type, tier, risk_score, verdict, policy_decision, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO assessments (id, action_hash, activity_type, tier, risk_score, verdict, policy_decision, radar_enabled, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       assessment.callId,
       assessment.actionHash,
@@ -116,6 +119,7 @@ export async function save(assessment) {
       assessment.riskScore,
       assessment.verdict,
       assessment.policyDecision || 'assess',
+      assessment.radarEnabled !== undefined ? (assessment.radarEnabled ? 1 : 0) : 1,
       new Date().toISOString()
     ]
   );
@@ -149,11 +153,14 @@ export async function stats() {
   );
   const topActivity = actResult.length ? actResult[0].values[0][0] : null;
 
+  const disabled = singleValue(db.exec("SELECT COUNT(*) FROM assessments WHERE radar_enabled = 0")) || 0;
+
   return {
     total,
     holdRate,
     tiers,
-    topActivity
+    topActivity,
+    disabled
   };
 }
 
