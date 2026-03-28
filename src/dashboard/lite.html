@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RADAR Lite — Risk Register</title>
+<title>RADAR — Risk Register</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -167,6 +167,45 @@
   /* Expandable rows */
   .call-row { cursor: pointer; transition: background 0.15s; }
   .call-row:hover { background: #1a1a1a; }
+  .call-row.hold-row { border-left: 3px solid #fbbf24; }
+  .call-row.hold-actioned { border-left: 3px solid #4ade80; }
+  .call-row.hold-halted { border-left: 3px solid #555; }
+  /* Vela options cards */
+  .vela-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .vela-opt-card { padding: 10px 12px; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; font-size: 12px; }
+  .vela-opt-card.is-rec { border-color: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,0.15); }
+  .vela-opt-card .opt-name { font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 0.04em; color: #f0ede8; margin-bottom: 3px; }
+  .vela-opt-card.is-rec .opt-name { color: #fbbf24; }
+  .vela-opt-card .opt-name .rec-tag { font-size: 9px; font-weight: 600; color: #fbbf24; margin-left: 6px; }
+  .vela-opt-card .opt-desc { color: #909090; line-height: 1.5; }
+  /* Action dropdown + confirm */
+  .hold-action-row { margin-top: 14px; padding-top: 14px; border-top: 1px solid #2a2a2a; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .hold-action-row label { font-size: 12px; color: #c0bdb8; font-weight: 500; }
+  .hold-action-select { background: #0d0d0d; border: 2px solid #3a3a3a; border-radius: 4px; padding: 8px 12px; color: #f0ede8; font-size: 13px; cursor: pointer; min-width: 280px; }
+  .hold-action-select:focus { outline: none; border-color: #fbbf24; }
+  .hold-confirm-btn { padding: 6px 16px; border: 1px solid #fbbf24; background: transparent; color: #fbbf24; font-size: 12px; font-weight: 600; border-radius: 4px; cursor: pointer; }
+  .hold-confirm-btn:hover { background: #fbbf2418; }
+  .hold-recorded { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #4ade80; font-weight: 600; margin-top: 14px; }
+  /* Confirmation overlay */
+  .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 300; display: flex; align-items: center; justify-content: center; }
+  .confirm-box { width: 400px; padding: 28px; background: #161616; border: 1px solid #fbbf24; border-radius: 8px; }
+  .confirm-box.notify-box { border-color: #60a5fa; }
+  .confirm-box h3 { font-size: 16px; font-weight: 600; color: #f0ede8; margin-bottom: 10px; }
+  .confirm-box p { font-size: 13px; color: #c0bdb8; line-height: 1.7; margin-bottom: 20px; }
+  .confirm-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .confirm-actions .btn-cancel { padding: 8px 18px; border: 1px solid #2a2a2a; background: none; color: #c0bdb8; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .confirm-actions .btn-accept { padding: 8px 18px; border: none; background: #fbbf24; color: #0d0d0d; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .confirm-actions .btn-notify { padding: 8px 18px; border: none; background: #60a5fa; color: #0d0d0d; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; }
+  /* Settings holdAction */
+  .hold-config { margin-top: 8px; padding: 8px 0; }
+  .hold-config.hidden-hr { display: none; }
+  .hold-config-label { font-size: 11px; color: #909090; margin-bottom: 4px; }
+  .hold-config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .hold-config-row select { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; padding: 4px 8px; color: #f0ede8; font-size: 12px; }
+  .hold-config-row input { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; padding: 4px 8px; color: #f0ede8; font-size: 12px; flex: 1; min-width: 180px; }
+  .hold-history { font-size: 10px; color: #555; margin-top: 4px; cursor: pointer; }
+  .hold-history:hover { color: #909090; }
+  .hold-history-list { font-size: 10px; color: #666; margin-top: 4px; line-height: 1.6; }
   .expand-row td { padding: 0; border-bottom: 1px solid #1a1a1a; }
   .expand-inner { padding: 16px 20px; background: #121218; font-size: 14px; line-height: 1.7; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .expand-inner .full-width { grid-column: 1 / -1; }
@@ -292,18 +331,17 @@
   <div class="auth-card-wrap">
     <div class="auth-card">
       <div class="logo">RADAR</div>
-      <div class="welcome">Welcome back</div>
+      <div class="welcome" style="margin-bottom:4px">Vela Lite · Local</div>
       <div class="auth-input-wrap">
-        <input type="password" id="key-input" placeholder="Enter dashboard password" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')verifyKey()">
+        <input type="password" id="key-input" placeholder="Dashboard password" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')verifyKey()">
         <button class="auth-toggle-vis" onclick="toggleKeyVis()" title="Show/hide">&#9673;</button>
       </div>
       <button class="auth-btn" id="auth-btn" onclick="verifyKey()">Access dashboard &rarr;</button>
       <div class="auth-status-msg" id="auth-error"></div>
       <div class="auth-links">
-        <a href="https://radar.essentianlabs.com">Need the full RADAR? <span class="green">Get it</span> at radar.essentianlabs.com</a>
-        <a href="https://essentianlabs.com">Back to <span class="fw">EssentianLabs</span></a>
+        <a href="https://radar.essentianlabs.com/docs.html">Read the docs</a>
+        <a href="https://essentianlabs.com">Powered by <span class="fw">EssentianLabs</span></a>
       </div>
-      <div style="margin-top:16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.1em;color:rgba(255,255,255,0.25)">Powered by <span style="color:rgba(255,255,255,0.6)">EssentianLabs</span></div>
     </div>
   </div>
   <div class="auth-footer-bar">
@@ -314,7 +352,6 @@
 
 <!-- Dashboard -->
 <div id="dashboard">
-  <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:500;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
   <div class="header">
     <div>
       <h1>RADAR</h1>
@@ -337,6 +374,8 @@
     <div class="tab" onclick="switchTab('settings')">Settings</div>
   </div>
 
+  <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:500;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
+
   <!-- Overview -->
   <div class="tab-panel active" id="panel-overview">
     <div class="agent-filter-bar" id="agent-filter-overview">
@@ -354,7 +393,6 @@
       <div class="stat-card t3"><div class="label">T3</div><div class="value" id="stat-t3">0</div></div>
       <div class="stat-card t4"><div class="label">T4</div><div class="value" id="stat-t4">0</div></div>
       <div class="stat-card"><div class="label">This Month</div><div class="value" id="stat-month" style="color:#c4943a">0</div></div>
-      <div class="stat-card" id="stat-disabled-card" style="display:none"><div class="label">Bypassed</div><div class="value" id="stat-disabled" style="color:#909090">0</div><div style="font-size:11px;color:#666;margin-top:4px">RADAR disabled</div></div>
     </div>
 
     <div id="agent-cards-panel"></div>
@@ -406,7 +444,7 @@
   <!-- Settings -->
   <div class="tab-panel" id="panel-settings">
     <div class="settings-section">
-      <h3>Enable RADAR Assessment</h3>
+      <h3>RADAR Assessment</h3>
       <div class="setting-row">
         <span class="setting-label">RADAR assessment is <strong id="radar-status-text">enabled</strong></span>
         <label class="hr-toggle">
@@ -416,11 +454,28 @@
       </div>
     </div>
     <div class="settings-section">
+      <h3>LLM Provider</h3>
+      <div style="margin-bottom:12px;font-size:13px;color:#909090">Configure which LLM Vela Lite uses for local assessments.</div>
+      <div class="setting-row" style="gap:12px;flex-wrap:wrap">
+        <select id="llm-provider" class="agent-select" style="min-width:160px" onchange="onLlmProviderChange()">
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="google">Google (Gemini)</option>
+        </select>
+        <div style="display:flex;gap:8px;flex:1;min-width:200px">
+          <input type="password" id="llm-api-key" class="setting-input" placeholder="API key" style="flex:1">
+          <button class="btn-sm btn-primary" onclick="saveLlmConfig()">Save</button>
+        </div>
+      </div>
+      <div id="llm-save-status" style="font-size:12px;margin-top:8px;min-height:18px"></div>
+    </div>
+    <div class="settings-section">
       <h3>Activity Slider Config</h3>
       <div id="config-section"></div>
     </div>
   </div>
 
+  <div id="hold-confirm-container"></div>
   <div class="dashboard-footer">
     RADAR &middot; Risk assessment infrastructure for AI agents<br>
     Powered by <a href="https://essentianlabs.com">EssentianLabs</a> &middot;
@@ -435,7 +490,7 @@
 const BASE = window.location.origin;
 const AGENT_COLORS = ['#c4943a','#60a5fa','#4ade80','#f87171','#c084fc','#fbbf24','#38bdf8','#fb923c','#a78bfa','#f472b6'];
 let apiKey = null;
-let subscriberPlan = 'lite';
+let subscriberPlan = null;
 let dailyChart = null;
 let callsData = [];
 let agentsList = [];
@@ -446,70 +501,16 @@ let allPerDayByAgent = null;
 let lastPerDayByAgent = null;
 
 function authHeaders(extra) {
-  const h = { 'Authorization': 'Bearer ' + apiKey };
+  const h = {};
+  if (apiKey) h['Authorization'] = 'Bearer ' + apiKey;
   if (extra) Object.assign(h, extra);
   return h;
 }
 
-// ─── Auth ───
+// ─── Auth (Lite: password-based, skippable) ───
 function toggleKeyVis() {
   const inp = document.getElementById('key-input');
   inp.type = inp.type === 'password' ? 'text' : 'password';
-}
-
-async function verifyKey() {
-  const password = document.getElementById('key-input').value.trim();
-  const btn = document.getElementById('auth-btn');
-  const inp = document.getElementById('key-input');
-  const statusEl = document.getElementById('auth-error');
-
-  // Check if password is required
-  try {
-    const authMode = await fetch(`${BASE}/dashboard/auth-mode`).then(r => r.json());
-    if (!authMode.password_required) {
-      // No password needed — go straight in
-      enterDashboard();
-      return;
-    }
-  } catch (e) {
-    // If auth-mode check fails, try password flow anyway
-  }
-
-  if (!password) return;
-  btn.disabled = true;
-  btn.textContent = 'Verifying...';
-  statusEl.className = 'auth-status-msg checking';
-  statusEl.textContent = 'Verifying...';
-  inp.classList.remove('error');
-
-  try {
-    const r = await fetch(`${BASE}/dashboard/verify-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
-    });
-    const d = await r.json();
-    if (d.valid) {
-      sessionStorage.setItem('radar_lite_auth', 'true');
-      statusEl.className = 'auth-status-msg ok';
-      statusEl.textContent = 'Authenticated \u2014 loading dashboard...';
-      btn.textContent = '\u2713 Verified';
-      btn.classList.add('success');
-      setTimeout(() => enterDashboard(), 800);
-    } else {
-      inp.classList.add('error');
-      statusEl.className = 'auth-status-msg err';
-      statusEl.textContent = 'Invalid password \u2014 check and try again';
-      btn.disabled = false;
-      btn.textContent = 'Access dashboard \u2192';
-    }
-  } catch (e) {
-    inp.classList.add('error');
-    statusEl.className = 'auth-status-msg err';
-    statusEl.textContent = 'Connection failed \u2014 try again';
-    btn.disabled = false;
-    btn.textContent = 'Access dashboard \u2192';
-  }
 }
 
 function enterDashboard() {
@@ -548,16 +549,75 @@ async function toggleRadarEnabled(enabled) {
   }
   try {
     await fetch(`${BASE}/dashboard/radar-enabled`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled })
     });
     checkRadarEnabled();
   } catch (e) { console.error('Toggle error', e); }
 }
 
+async function checkPasswordRequired() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/auth-mode`);
+    const d = await r.json();
+    if (!d.password_required) {
+      // No password set — skip login
+      enterDashboard();
+      return true;
+    }
+  } catch (e) {
+    // If endpoint doesn't exist, skip login
+    enterDashboard();
+    return true;
+  }
+  return false;
+}
+
+async function verifyKey() {
+  const password = document.getElementById('key-input').value.trim();
+  if (!password) return;
+  const btn = document.getElementById('auth-btn');
+  const inp = document.getElementById('key-input');
+  const statusEl = document.getElementById('auth-error');
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+  statusEl.className = 'auth-status-msg checking';
+  statusEl.textContent = 'Checking password...';
+  inp.classList.remove('error');
+
+  try {
+    const r = await fetch(`${BASE}/dashboard/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const d = await r.json();
+    if (d.valid) {
+      sessionStorage.setItem('radar_lite_auth', 'true');
+      statusEl.className = 'auth-status-msg ok';
+      statusEl.textContent = 'Authenticated \u2014 loading dashboard...';
+      btn.textContent = '\u2713 Verified';
+      btn.classList.add('success');
+      setTimeout(() => enterDashboard(), 800);
+    } else {
+      inp.classList.add('error');
+      statusEl.className = 'auth-status-msg err';
+      statusEl.textContent = 'Incorrect password';
+      btn.disabled = false;
+      btn.textContent = 'Access dashboard \u2192';
+    }
+  } catch (e) {
+    inp.classList.add('error');
+    statusEl.className = 'auth-status-msg err';
+    statusEl.textContent = 'Connection failed \u2014 is the local server running?';
+    btn.disabled = false;
+    btn.textContent = 'Access dashboard \u2192';
+  }
+}
+
 function logout() {
   sessionStorage.removeItem('radar_lite_auth');
+  apiKey = null;
   document.getElementById('dashboard').style.display = 'none';
   const gate = document.getElementById('auth-gate');
   gate.style.display = 'block';
@@ -793,14 +853,6 @@ async function loadStats() {
     document.getElementById('stat-t3').textContent = d.by_tier[3] || 0;
     document.getElementById('stat-t4').textContent = d.by_tier[4] || 0;
     document.getElementById('stat-month').textContent = d.calls_this_month || 0;
-
-    // Show disabled count if any
-    const disabledCount = d.disabled || 0;
-    const disabledCard = document.getElementById('stat-disabled-card');
-    if (disabledCard) {
-      disabledCard.style.display = disabledCount > 0 ? '' : 'none';
-      document.getElementById('stat-disabled').textContent = disabledCount;
-    }
 
     // Derive per_day_by_agent from recent calls if backend doesn't provide it
     let perDayByAgent = d.per_day_by_agent;
@@ -1088,7 +1140,7 @@ function renderBoxPlot(perDayByAgent) {
 }
 
 // ─── Tables ───
-function tierBadge(tier, radarEnabled) { if (radarEnabled === 0 || radarEnabled === false) return `<span class="tier-badge" style="background:#2a2a2a;color:#909090">DISABLED</span>`; return `<span class="tier-badge tier-${tier}">T${tier}</span>`; }
+function tierBadge(tier) { return `<span class="tier-badge tier-${tier}">T${tier}</span>`; }
 
 function renderRecentTable(calls) {
   if (!calls || !calls.length) {
@@ -1098,7 +1150,7 @@ function renderRecentTable(calls) {
   let html = '<table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
   for (const c of calls) {
     const time = new Date(c.created_at).toLocaleString();
-    const verdict = c.verdict ? `<span class="verdict-${c.verdict}">${c.verdict}</span>` : '—';
+    const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
     const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
     const agent = c.agent_id ? `<span class="agent-link" onclick="onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
     html += `<tr><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
@@ -1109,25 +1161,33 @@ function renderRecentTable(calls) {
 
 // ─── Call Log ───
 async function loadCalls() {
-  // Lite dashboard — call log always available (local data)
+  if (subscriberPlan !== 'paid') {
+    document.getElementById('calls-content').innerHTML = '<div class="upgrade-msg">Upgrade to paid to view full call history</div>';
+    return;
+  }
   try {
     const r = await fetch(`${BASE}/dashboard/calls${agentParam()}`, { headers: authHeaders() });
     const d = await r.json();
-    // Lite — no upgrade gate, all local data
+    if (d.upgrade_required) {
+      document.getElementById('calls-content').innerHTML = '<div class="upgrade-msg">Upgrade to paid to view full call history</div>';
+      return;
+    }
     callsData = d.calls;
     const colCount = 13;
     let html = '<div class="table-container"><table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Action</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Models</th><th>Vela</th><th>Outcome</th><th>Response</th></tr></thead><tbody>';
     for (let i = 0; i < d.calls.length; i++) {
       const c = d.calls[i];
       const time = new Date(c.created_at).toLocaleString();
-      const verdict = c.verdict ? `<span class="verdict-${c.verdict}">${c.verdict}</span>` : '—';
+      const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
       const models = (c.models_consulted || []).join(', ') || '—';
       const vela = c.vela_consulted ? `<span class="vela-badge">Vela</span>` : '—';
       const outcome = renderOutcomeCell(c, i);
       const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
       const action = c.tldr?.action ? truncate(c.tldr.action, 50) : truncate(c.activity_type, 50);
       const agent = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
-      html += `<tr class="call-row" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      const isRowHold = (c.verdict || '').toString().trim().toUpperCase() === 'HOLD';
+      const holdCls = isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : '';
+      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
       html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
     }
     html += '</tbody></table></div>';
@@ -1320,20 +1380,54 @@ function renderExpandedRow(c, idx) {
   const models = (c.models_consulted || []).join(', ') || '—';
   const velaTag = c.vela_consulted ? '<span class="vela-badge">Vela consulted</span>' : '<span style="color:#555">Vela not consulted</span>';
   const agentTag = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '<span style="color:#555">No agent</span>';
+  const isHold = (c.verdict || '').toString().trim().toUpperCase() === 'HOLD';
 
+  // Vela's four options (HOLD rows)
+  let optionsHtml = '';
+  if (isHold) {
+    if (c.vela_options && Object.keys(c.vela_options).length > 0) {
+      const rec = (c.vela_recommendation || '').toLowerCase();
+      optionsHtml = '<div class="expand-label" style="margin-top:10px">Vela\'s options</div><div class="vela-opts">';
+      for (const [key, desc] of Object.entries(c.vela_options)) {
+        const isRec = key.toLowerCase() === rec;
+        optionsHtml += `<div class="vela-opt-card${isRec ? ' is-rec' : ''}"><div class="opt-name">${esc(key)}${isRec ? '<span class="rec-tag">recommended</span>' : ''}</div><div class="opt-desc">${esc(desc)}</div></div>`;
+      }
+      optionsHtml += '</div>';
+    } else {
+      optionsHtml = '<div style="margin-top:10px;font-size:12px;color:#555;font-style:italic">Vela options not available for this assessment</div>';
+    }
+  }
+
+  // Action dropdown or recorded tag (HOLD rows)
+  let holdActionHtml = '';
+  if (isHold) {
+    const chosen = c.chosen_action || c.feedback?.chosen_action;
+    if (chosen) {
+      const ts = c.action_timestamp ? new Date(c.action_timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+      holdActionHtml = `<div class="hold-recorded">&#10003; ${chosen.charAt(0).toUpperCase() + chosen.slice(1)}${ts ? ' — ' + ts : ''}</div>`;
+    } else {
+      holdActionHtml = `<div class="hold-action-row" id="hold-action-${idx}">
+        <label>What do you want to do?</label>
+        <select class="hold-action-select" id="hold-select-${idx}">
+          <option value="halt">Halt — keep halted, handle manually</option>
+          <option value="queue">Queue — mark as queued for review</option>
+          <option value="accept">Accept — accept the risk and proceed</option>
+          <option value="notify">Notify — send to configured webhook</option>
+        </select>
+        <button class="hold-confirm-btn" onclick="event.stopPropagation();confirmHoldAction(${idx},'${c.call_id}')">Confirm</button>
+      </div>`;
+    }
+  }
+
+  // Generic feedback (non-HOLD rows)
   let feedbackHtml = '';
-  if (!c.feedback) {
+  if (!isHold && !c.feedback) {
     feedbackHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a">
       <span style="color:#8a8a8a;font-size:11px;margin-right:8px">Rate outcome:</span>
       <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'followed')">Followed</button>
       <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'overridden')">Overridden</button>
       <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'escalated')">Escalated</button>
       <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'deferred')">Deferred</button>
-      &nbsp;&nbsp;
-      <span style="color:#8a8a8a;font-size:11px;margin-right:8px">Vela accuracy:</span>
-      <button class="fb-btn" onclick="event.stopPropagation();submitAccuracy('${c.call_id}',${idx},'accurate')">Accurate</button>
-      <button class="fb-btn" onclick="event.stopPropagation();submitAccuracy('${c.call_id}',${idx},'too_cautious')">Too cautious</button>
-      <button class="fb-btn" onclick="event.stopPropagation();submitAccuracy('${c.call_id}',${idx},'not_cautious_enough')">Not cautious enough</button>
     </div>`;
   }
 
@@ -1343,6 +1437,8 @@ function renderExpandedRow(c, idx) {
     <div class="full-width"><div class="expand-label">Trigger reason</div><div class="expand-value">${triggerFull}</div></div>
     <div class="full-width"><div class="expand-label">Full assessment</div><div class="expand-value">${assessment}</div></div>
     <div><div class="expand-label">Assumptions</div><div class="expand-value">${assumptions}</div></div>
+    ${optionsHtml ? `<div class="full-width">${optionsHtml}</div>` : ''}
+    ${holdActionHtml ? `<div class="full-width">${holdActionHtml}</div>` : ''}
     ${feedbackHtml ? `<div class="full-width">${feedbackHtml}</div>` : ''}
   </div>`;
 }
@@ -1358,6 +1454,59 @@ function renderOutcomeCell(call, idx) {
 }
 
 // ─── Feedback ───
+function confirmHoldAction(idx, callId) {
+  const sel = document.getElementById('hold-select-' + idx);
+  const action = sel.value;
+  if (action === 'accept') {
+    showConfirmPopup('Accept this risk?', 'You are allowing the agent to proceed. This decision will be logged with a timestamp and cannot be undone.', 'Accept risk', 'btn-accept', () => submitHoldAction(idx, callId, 'accept'));
+  } else if (action === 'notify') {
+    showConfirmPopup('Confirm notification', 'This will return the notifyUrl to your code for notification. Confirm?', 'Confirm', 'btn-notify', () => submitHoldAction(idx, callId, 'notify'), true);
+  } else {
+    submitHoldAction(idx, callId, action);
+  }
+}
+
+let _confirmCallback = null;
+function showConfirmPopup(title, body, btnText, btnClass, onConfirm, isNotify) {
+  _confirmCallback = onConfirm;
+  const container = document.getElementById('hold-confirm-container');
+  container.innerHTML = `<div class="confirm-overlay" onclick="if(event.target===this)closeConfirmPopup()">
+    <div class="confirm-box${isNotify ? ' notify-box' : ''}">
+      <h3>${title}</h3>
+      <p>${body}</p>
+      <div class="confirm-actions">
+        <button class="btn-cancel" onclick="closeConfirmPopup()">Cancel</button>
+        <button class="${btnClass}" onclick="closeConfirmPopup();if(_confirmCallback)_confirmCallback()">${btnText}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function closeConfirmPopup() {
+  document.getElementById('hold-confirm-container').innerHTML = '';
+}
+
+async function submitHoldAction(idx, callId, action) {
+  try {
+    const r = await fetch(`${BASE}/radar/feedback`, {
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ call_id: callId, chosen_action: action, confirmed: true, outcome: action === 'accept' ? 'accepted' : action === 'notify' ? 'notified' : action === 'queue' ? 'queued' : 'halted' })
+    });
+    const d = await r.json();
+    if (d.success) {
+      callsData[idx].chosen_action = action;
+      callsData[idx].action_timestamp = new Date().toISOString();
+      const ts = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const el = document.getElementById('hold-action-' + idx);
+      if (el) el.innerHTML = `<div class="hold-recorded">&#10003; ${action.charAt(0).toUpperCase() + action.slice(1)} — ${ts}</div>`;
+      // Update row border
+      const rows = document.querySelectorAll('.call-row');
+      let rowIdx = 0;
+      rows.forEach(r => { if (r.dataset?.idx == idx || rowIdx === idx) { r.classList.remove('hold-row'); r.classList.add(action === 'accept' ? 'hold-actioned' : 'hold-halted'); } rowIdx++; });
+    }
+  } catch (e) { console.error('Hold action error', e); }
+}
+
 async function submitFeedback(callId, idx, outcome) {
   try {
     const r = await fetch(`${BASE}/radar/feedback`, {
@@ -1620,7 +1769,7 @@ function copySnippet(agentId) {
   const snippet = `radar.configure({
   apiKey: '${apiKey.slice(0, 9)}****',
   agentId: '${agentId}',
-  llmKey: 'YOUR_API_KEY_HERE',
+  llmKey: 'sk-ant-xxxx',
   activities: {
     email_single: 'balanced',
     email_bulk: 'conservative',
@@ -1640,7 +1789,41 @@ function copySnippet(agentId) {
 
 // ─── Settings ───
 function loadSettings() {
+  loadLlmConfig();
   loadActivityConfig();
+}
+
+async function loadLlmConfig() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/llm-config`, { headers: authHeaders() });
+    const d = await r.json();
+    if (d.provider) document.getElementById('llm-provider').value = d.provider;
+    if (d.api_key_set) document.getElementById('llm-api-key').placeholder = 'API key configured (hidden)';
+  } catch (e) {}
+}
+
+function onLlmProviderChange() {
+  document.getElementById('llm-api-key').placeholder = 'API key for ' + document.getElementById('llm-provider').value;
+}
+
+async function saveLlmConfig() {
+  const provider = document.getElementById('llm-provider').value;
+  const llmKey = document.getElementById('llm-api-key').value.trim();
+  const statusEl = document.getElementById('llm-save-status');
+  try {
+    await fetch(`${BASE}/dashboard/llm-config`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ provider, api_key: llmKey || undefined })
+    });
+    statusEl.style.color = '#4ade80';
+    statusEl.textContent = 'Saved';
+    if (llmKey) { document.getElementById('llm-api-key').value = ''; document.getElementById('llm-api-key').placeholder = 'API key configured (hidden)'; }
+    setTimeout(() => { statusEl.textContent = ''; }, 2000);
+  } catch (e) {
+    statusEl.style.color = '#f87171';
+    statusEl.textContent = 'Failed to save';
+  }
 }
 
 const ACTIVITY_TYPES = [
@@ -1652,18 +1835,17 @@ const ACTIVITY_TYPES = [
   { key: 'data_delete_single', label: 'Data delete (single)', default: 0.5, examples: ['Delete user account #12345', 'Remove record from contacts table'] },
   { key: 'data_delete_bulk', label: 'Data delete (bulk)', default: 1.0, examples: ['Delete all records older than 2 years', 'Purge inactive accounts matching criteria'] },
   { key: 'web_search', label: 'Web search', default: 0, examples: ['Search web for recent news on topic', 'Scrape pricing data from competitor site'] },
-  { key: 'external_api_call', label: 'External API call', default: 0.5, examples: ['Call Stripe API to retrieve invoice', 'Send webhook to third-party service'] },
+  { key: 'external_api', label: 'External API call', default: 0.5, examples: ['Call Stripe API to retrieve invoice', 'Send webhook to third-party service'] },
   { key: 'system_execute', label: 'System execute', default: 1.0, examples: ['Run deployment script on production server', 'Execute database migration'] },
   { key: 'system_files', label: 'System files', default: 1.0, examples: ['Modify nginx config file', 'Write to /etc/environment'] },
   { key: 'financial', label: 'Financial', default: 1.0, examples: ['Process payment of £500 to vendor', 'Issue refund to customer #9876'] }
 ];
 const DEFAULT_ACTIVITY_KEYS = ACTIVITY_TYPES.map(a => a.key);
 // Legacy types — accepted but deprecated
-const DEPRECATED_TYPES = { email: 'email_single', publishing: 'publish', data_deletion: 'data_delete_single', external_api: 'external_api_call' };
+const DEPRECATED_TYPES = { email: 'email_single', publishing: 'publish', data_deletion: 'data_delete_single' };
 let activityConfig = {};
 let humanReviewConfig = {};
 let holdActionConfig = {};
-let notifyUrlConfig = {};
 
 async function loadActivityConfig() {
   try {
@@ -1671,8 +1853,6 @@ async function loadActivityConfig() {
     const d = await r.json();
     activityConfig = {};
     humanReviewConfig = {};
-    holdActionConfig = {};
-    notifyUrlConfig = {};
     for (const a of ACTIVITY_TYPES) activityConfig[a.key] = a.default;
     if (d.activity_config) {
       for (const [k, v] of Object.entries(d.activity_config)) {
@@ -1680,16 +1860,18 @@ async function loadActivityConfig() {
         const mapped = DEPRECATED_TYPES[k] || k;
         activityConfig[mapped] = typeof v === 'object' ? (v.slider ?? 0.5) : v;
         if (typeof v === 'object' && v.human_review) humanReviewConfig[mapped] = true;
-        if (typeof v === 'object' && v.hold_action) holdActionConfig[mapped] = v.hold_action;
-        if (typeof v === 'object' && v.notify_url) notifyUrlConfig[mapped] = v.notify_url;
       }
     }
     if (d.human_review_config) {
       for (const [k, v] of Object.entries(d.human_review_config)) humanReviewConfig[k] = !!v;
     }
+    if (d.hold_action_config) {
+      for (const [k, v] of Object.entries(d.hold_action_config)) holdActionConfig[k] = v;
+    }
   } catch (e) {
     for (const a of ACTIVITY_TYPES) activityConfig[a.key] = a.default;
     humanReviewConfig = {};
+    holdActionConfig = {};
   }
   renderActivitySliders();
 }
@@ -1711,10 +1893,6 @@ function renderActivitySliders() {
     const examples = typeInfo?.examples || [];
     const examplesHtml = examples.length ? `<div class="slider-examples">${examples.map(e => '"' + e + '"').join(' · ')}</div>` : '';
 
-    const ha = holdActionConfig[activity] || 'halt';
-    const nu = notifyUrlConfig[activity] || '';
-    const notifyVis = ha === 'notify' ? '' : 'display:none;';
-
     html += `<div class="slider-row${hrClass}" id="slider-row-${activity}">
       <div class="slider-label-col"><span class="slider-label">${label}${badge}</span>${examplesHtml}</div>
       <div class="slider-track"><span class="slider-bound">Permissive</span><input type="range" min="0" max="1" step="0.5" value="${value}" class="activity-slider" data-activity="${activity}" onchange="onSliderChange(this)" oninput="updateSliderLabel(this)"><span class="slider-bound">Conservative</span></div>
@@ -1727,18 +1905,21 @@ function renderActivitySliders() {
       <span class="slider-saved" id="saved-${activity}">Saved</span>
       ${deleteBtn}
     </div>
-    <div style="padding:0 0 8px 220px;font-size:11px;color:#666;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="color:#909090">On HOLD:</span>
-      <select style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:3px;padding:2px 6px;color:#c0bdb8;font-size:11px" data-activity="${activity}" onchange="onHoldActionChange(this)">
-        <option value="halt" ${ha==='halt'?'selected':''}>Halt</option>
-        <option value="queue" ${ha==='queue'?'selected':''}>Queue</option>
-        <option value="log_only" ${ha==='log_only'?'selected':''}>Log only</option>
-        <option value="notify" ${ha==='notify'?'selected':''}>Notify</option>
-      </select>
-      <span id="ha-hint-${activity}" style="color:#555;font-size:10px">${holdActionHint(ha)}</span>
-      <input type="text" id="notify-url-${activity}" value="${nu}" placeholder="https://your-webhook.com" style="${notifyVis}background:#0d0d0d;border:1px solid #2a2a2a;border-radius:3px;padding:2px 6px;color:#c0bdb8;font-size:11px;width:220px" data-activity="${activity}" onchange="onNotifyUrlChange(this)">
-      <span id="ha-history-${activity}" style="color:#555;font-size:10px;cursor:pointer;text-decoration:underline" onclick="toggleConfigHistory('${activity}')" style="display:none"></span>
-      <div id="ha-history-list-${activity}" style="display:none;font-size:10px;color:#555;padding:4px 0;width:100%"></div>
+    <div class="hold-config${isHR ? ' hidden-hr' : ''}" id="hold-config-${activity}">
+      ${isHR ? '<div style="font-size:11px;color:#666;padding:4px 0">Human review enabled — hold action not applicable</div>' : `
+      <div class="hold-config-label">Default hold action (unattended) <span style="color:#555;font-size:10px">— applied when no one reviews the call log</span></div>
+      <div class="hold-config-row">
+        <select onchange="onHoldActionChange('${activity}',this.value)" id="hold-action-sel-${activity}">
+          <option value="halt"${(holdActionConfig[activity]?.action||'halt')==='halt'?' selected':''}>Halt</option>
+          <option value="queue"${holdActionConfig[activity]?.action==='queue'?' selected':''}>Queue</option>
+          <option value="accept"${holdActionConfig[activity]?.action==='accept'?' selected':''}>Accept</option>
+          <option value="notify"${holdActionConfig[activity]?.action==='notify'?' selected':''}>Notify</option>
+        </select>
+        <input type="text" placeholder="https://your-webhook.com/endpoint" value="${esc(holdActionConfig[activity]?.notify_url||'')}" id="hold-notify-${activity}" style="display:${holdActionConfig[activity]?.action==='notify'?'block':'none'}" onchange="onHoldNotifyChange('${activity}',this.value)">
+      </div>
+      <div class="hold-history" id="hold-hist-${activity}" onclick="toggleHoldHistory('${activity}')">${holdActionConfig[activity]?.last_changed ? 'Last changed ' + new Date(holdActionConfig[activity].last_changed).toLocaleString() : 'No changes recorded'}</div>
+      <div class="hold-history-list" id="hold-hist-list-${activity}" style="display:none"></div>
+      `}
     </div>`;
   }
   html += `<button class="add-activity-btn" onclick="showAddActivity()">+ Add custom activity</button>`;
@@ -1757,65 +1938,67 @@ async function onHumanReviewToggle(el) {
   const row = document.getElementById('slider-row-' + act);
   if (row) row.classList.toggle('human-required', el.checked);
   document.getElementById('label-' + act).textContent = el.checked ? 'Human review' : sliderLabel(activityConfig[act] ?? 0.5);
+  // Show/hide hold action config
+  const holdCfg = document.getElementById('hold-config-' + act);
+  if (holdCfg) {
+    if (el.checked) {
+      holdCfg.classList.add('hidden-hr');
+      holdCfg.innerHTML = '<div style="font-size:11px;color:#666;padding:4px 0">Human review enabled — hold action not applicable</div>';
+    } else {
+      holdCfg.classList.remove('hidden-hr');
+      renderActivitySliders(); // Re-render to restore hold config
+      return; // renderActivitySliders will save
+    }
+  }
   await saveActivityConfig();
   showSaved(act);
 }
-function holdActionHint(ha) {
-  const hints = {
-    halt: 'Halt — agent stops, handle manually',
-    queue: 'Queue — signals your code to add to a review queue. No queue built into RADAR.',
-    log_only: 'Log only — log the HOLD and proceed. You accept the risk.',
-    notify: 'Notify — returns notifyUrl for your code to send. RADAR does not make outbound calls.'
-  };
-  return hints[ha] || '';
-}
-async function onHoldActionChange(el) {
-  const act = el.dataset.activity;
-  holdActionConfig[act] = el.value;
-  document.getElementById('ha-hint-' + act).textContent = holdActionHint(el.value);
-  const notifyInput = document.getElementById('notify-url-' + act);
-  if (notifyInput) notifyInput.style.display = el.value === 'notify' ? '' : 'none';
+async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig, hold_actions: holdActionConfig }) }); } catch (e) { console.error('Config save error', e); } }
+
+async function onHoldActionChange(activity, action) {
+  if (!holdActionConfig[activity]) holdActionConfig[activity] = {};
+  holdActionConfig[activity].action = action;
+  holdActionConfig[activity].last_changed = new Date().toISOString();
+  const notifyInput = document.getElementById('hold-notify-' + activity);
+  if (notifyInput) notifyInput.style.display = action === 'notify' ? 'block' : 'none';
   await saveActivityConfig();
-  showSaved(act, 'Hold action saved');
+  showSaved(activity);
 }
-async function onNotifyUrlChange(el) {
-  const act = el.dataset.activity;
-  notifyUrlConfig[act] = el.value.trim();
+
+async function onHoldNotifyChange(activity, url) {
+  if (!holdActionConfig[activity]) holdActionConfig[activity] = {};
+  holdActionConfig[activity].notify_url = url;
   await saveActivityConfig();
-  showSaved(act, 'Notify URL saved');
+  showSaved(activity);
 }
-async function toggleConfigHistory(activity) {
-  const list = document.getElementById('ha-history-list-' + activity);
+
+async function toggleHoldHistory(activity) {
+  const list = document.getElementById('hold-hist-list-' + activity);
   if (list.style.display !== 'none') { list.style.display = 'none'; return; }
   try {
-    const r = await fetch(`${BASE}/dashboard/config-history?activity_type=${activity}`);
+    const r = await fetch(`${BASE}/dashboard/activity-config/${activity}/history`, { headers: authHeaders() });
     const d = await r.json();
-    if (!d.history || !d.history.length) { list.innerHTML = '<span style="color:#555">No changes recorded</span>'; }
-    else { list.innerHTML = d.history.map(h => `<div>${h.previous_value || '(none)'} → ${h.new_value} — ${new Date(h.changed_at).toLocaleString()}</div>`).join(''); }
-    list.style.display = 'block';
-  } catch (e) { list.innerHTML = '<span style="color:#555">Could not load history</span>'; list.style.display = 'block'; }
+    if (d.history && d.history.length > 0) {
+      list.innerHTML = d.history.map(h => `${h.from || '?'} &rarr; ${h.to || '?'} &mdash; ${new Date(h.timestamp).toLocaleString()}`).join('<br>');
+    } else {
+      list.innerHTML = 'No changes recorded';
+    }
+  } catch (e) { list.innerHTML = 'No changes recorded'; }
+  list.style.display = 'block';
 }
-async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig, hold_actions: holdActionConfig, notify_urls: notifyUrlConfig }) }); } catch (e) { console.error('Config save error', e); } }
 function showSaved(activity, text) { const el = document.getElementById('saved-' + activity); if (!el) return; el.textContent = text || 'Saved'; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2000); }
 function validateActivityName(input) { const err = document.getElementById('add-activity-error'); if (/[^a-z0-9_]/.test(input.value)) err.textContent = 'Lowercase letters, numbers, and underscores only'; else if (activityConfig[input.value] !== undefined) err.textContent = 'Activity already exists'; else err.textContent = ''; }
 function showAddActivity() { const f = document.getElementById('add-activity-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; if (f.style.display === 'block') document.getElementById('new-activity-input').focus(); }
 async function addCustomActivity() { const input = document.getElementById('new-activity-input'); const err = document.getElementById('add-activity-error'); const name = input.value.trim(); if (!name) { err.textContent = 'Enter an activity name'; return; } if (/[^a-z0-9_]/.test(name)) { err.textContent = 'Lowercase letters, numbers, and underscores only'; return; } if (name.length > 30) { err.textContent = 'Max 30 characters'; return; } if (activityConfig[name] !== undefined) { err.textContent = 'Activity already exists'; return; } activityConfig[name] = 0.5; await saveActivityConfig(); input.value = ''; err.textContent = ''; document.getElementById('add-activity-form').style.display = 'none'; renderActivitySliders(); showSaved(name); }
 async function deleteActivity(name) { if (DEFAULT_ACTIVITY_KEYS.includes(name)) return; delete activityConfig[name]; delete humanReviewConfig[name]; await saveActivityConfig(); renderActivitySliders(); }
-
 // Auto-login
 window.addEventListener('DOMContentLoaded', async () => {
   startRadarAnimation();
-  // Check if password is required
-  try {
-    const authMode = await fetch(`${BASE}/dashboard/auth-mode`).then(r => r.json());
-    if (!authMode.password_required) {
-      enterDashboard();
-      return;
-    }
-  } catch (e) {}
-  // Check session
-  const saved = sessionStorage.getItem('radar_lite_auth');
-  if (saved) { enterDashboard(); }
+  // Check if password is required; if not, skip login
+  const skipped = await checkPasswordRequired();
+  if (skipped) return;
+  // If previously authenticated in this session, skip login
+  if (sessionStorage.getItem('radar_lite_auth')) { enterDashboard(); return; }
 });
 </script>
 </body>
