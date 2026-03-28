@@ -6,6 +6,8 @@ Local risk assessment for AI agents. **Vela Lite** runs on your machine — no d
 
 RADAR produces risk intelligence, not safety assurance. Vela Lite's verdict is an assessment based on the action description you provide. It does not verify what your agent actually executes. A PROCEED verdict does not transfer liability — the developer remains responsible for the action taken and the accuracy of the description submitted.
 
+This is a beta release. Not recommended for enterprise or production use without independent legal and compliance review. By installing this package you agree to the [Beta Terms of Use](https://radar.essentianlabs.com/terms.html).
+
 ## Install
 
 ```bash
