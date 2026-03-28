@@ -4,33 +4,95 @@ import { classify, getThresholds } from '../src/classifier.js';
 
 describe('classifier — rules engine pre-scorer', () => {
 
-  it('scores low-risk action below T2 threshold', () => {
-    // external_api base score 6, no signals, permissive T2 threshold at 7 → below T2
-    const result = classify('Check weather forecast', 'external_api', 0.0);
-    assert.equal(result.riskScore, 6);
-    assert.equal(result.rawTier, 1);
-    assert.equal(result.activityType, 'external_api');
-    assert.equal(result.wouldEscalate, false);
-    assert.equal(result.escalateTier, null);
-    // No verdict — Vela Lite owns the verdict now
-    assert.equal(result.verdict, undefined);
+  // --- New v0.2 activity types ---
+
+  it('email_single scores base 12', () => {
+    const result = classify('Send email', 'email_single', 0.5);
+    assert.equal(result.riskScore, 12);
+    assert.equal(result.activityType, 'email_single');
   });
 
-  it('scores high-risk email above T2 threshold', () => {
-    const result = classify('Send price increase email to all 50,000 users', 'email', 0.7);
-    assert.ok(result.riskScore >= 5);
-    assert.ok(result.rawTier >= 2);
+  it('email_bulk scores higher than email_single', () => {
+    const single = classify('Send email', 'email_single', 0.5);
+    const bulk = classify('Send email', 'email_bulk', 0.5);
+    assert.ok(bulk.riskScore > single.riskScore);
   });
+
+  it('data_read has low base score', () => {
+    const result = classify('Read user profile', 'data_read', 0.5);
+    assert.equal(result.riskScore, 2);
+  });
+
+  it('data_write has medium base score', () => {
+    const result = classify('Update user record', 'data_write', 0.5);
+    assert.equal(result.riskScore, 6);
+  });
+
+  it('data_delete_bulk scores higher than data_delete_single', () => {
+    const single = classify('Delete record', 'data_delete_single', 0.5);
+    const bulk = classify('Delete record', 'data_delete_bulk', 0.5);
+    assert.ok(bulk.riskScore > single.riskScore);
+  });
+
+  it('web_search has lowest base score', () => {
+    const result = classify('Search for documentation', 'web_search', 0.5);
+    assert.equal(result.riskScore, 1);
+  });
+
+  it('system_execute has high base score', () => {
+    const result = classify('Run command', 'system_execute', 0.5);
+    assert.equal(result.riskScore, 15);
+  });
+
+  it('system_files has high base score', () => {
+    const result = classify('Modify config', 'system_files', 0.5);
+    assert.equal(result.riskScore, 12);
+  });
+
+  it('financial retains highest base score', () => {
+    const result = classify('Transfer funds', 'financial', 0.5);
+    assert.equal(result.riskScore, 15);
+  });
+
+  it('publish matches old publishing score', () => {
+    const result = classify('Post article', 'publish', 0.5);
+    assert.equal(result.riskScore, 9);
+  });
+
+  it('external_api retains same score', () => {
+    const result = classify('Call API', 'external_api', 0.5);
+    assert.equal(result.riskScore, 6);
+  });
+
+  // --- Deprecated types ---
+
+  it('deprecated "email" resolves to email_single', () => {
+    const result = classify('Send email', 'email', 0.5);
+    assert.equal(result.activityType, 'email_single');
+    assert.equal(result.riskScore, 12);
+  });
+
+  it('deprecated "publishing" resolves to publish', () => {
+    const result = classify('Post article', 'publishing', 0.5);
+    assert.equal(result.activityType, 'publish');
+  });
+
+  it('deprecated "data_deletion" resolves to data_delete_single', () => {
+    const result = classify('Delete record', 'data_deletion', 0.5);
+    assert.equal(result.activityType, 'data_delete_single');
+  });
+
+  // --- Signal modifiers (unchanged) ---
 
   it('increases score for mass/scale signals', () => {
-    const base = classify('Send email', 'email', 0.5);
-    const mass = classify('Send bulk email to everyone', 'email', 0.5);
+    const base = classify('Send email', 'email_single', 0.5);
+    const mass = classify('Send bulk email to everyone', 'email_single', 0.5);
     assert.ok(mass.riskScore > base.riskScore);
   });
 
   it('decreases score for draft/test signals', () => {
-    const base = classify('Send email to users', 'email', 0.5);
-    const draft = classify('Send draft test email internally', 'email', 0.5);
+    const base = classify('Send email to users', 'email_single', 0.5);
+    const draft = classify('Send draft test email internally', 'email_single', 0.5);
     assert.ok(draft.riskScore < base.riskScore);
   });
 
@@ -40,6 +102,8 @@ describe('classifier — rules engine pre-scorer', () => {
     assert.ok(sensitive.riskScore > base.riskScore);
   });
 
+  // --- Thresholds ---
+
   it('slider at 0.0 (permissive) raises thresholds', () => {
     const permissive = getThresholds(0.0);
     const conservative = getThresholds(1.0);
@@ -47,10 +111,12 @@ describe('classifier — rules engine pre-scorer', () => {
   });
 
   it('clamps score between 1 and 25', () => {
-    const result = classify('Send draft test preview internal email', 'default', 0.0);
+    const result = classify('Send draft test preview internal email', 'web_search', 0.0);
     assert.ok(result.riskScore >= 1);
     assert.ok(result.riskScore <= 25);
   });
+
+  // --- Unknown types ---
 
   it('warns on unknown activity type and scores as default', () => {
     const result = classify('Do something', 'unknown_type', 0.5);
@@ -59,19 +125,15 @@ describe('classifier — rules engine pre-scorer', () => {
     assert.ok(result.triggerReason.includes('Unknown type'));
   });
 
+  // --- Escalation ---
+
   it('returns wouldEscalate for extreme risk', () => {
     const result = classify('Delete all credit card payment records for everyone', 'financial', 1.0);
     assert.equal(result.wouldEscalate, true);
     assert.ok(result.escalateTier >= 3);
   });
 
-  it('financial actions have high base score', () => {
-    const result = classify('Transfer funds', 'financial', 0.5);
-    assert.ok(result.riskScore >= 10);
-  });
-
   it('returns rawTier without capping', () => {
-    // Max score financial at conservative should give rawTier 3 or 4
     const result = classify('Delete all credit card payment records for everyone', 'financial', 1.0);
     assert.ok(result.rawTier >= 3);
   });

@@ -1,15 +1,22 @@
-import { DEFAULT_SLIDER } from './constants.js';
+import { DEFAULT_SLIDER, ACTIVITY_TYPES, resolveActivityType } from './constants.js';
 
 const BASE_SCORES = {
-  financial:     { likelihood: 3, consequence: 5 },
-  data_deletion: { likelihood: 3, consequence: 5 },
-  email:         { likelihood: 3, consequence: 4 },
-  publishing:    { likelihood: 3, consequence: 3 },
-  external_api:  { likelihood: 2, consequence: 3 },
-  default:       { likelihood: 2, consequence: 2 }
+  email_single:       { likelihood: 3, consequence: 4 },   // score 12
+  email_bulk:         { likelihood: 4, consequence: 4 },   // score 16 (+3 effective vs email_single base 12→15 area)
+  publish:            { likelihood: 3, consequence: 3 },   // score 9
+  data_read:          { likelihood: 1, consequence: 2 },   // score 2
+  data_write:         { likelihood: 2, consequence: 3 },   // score 6
+  data_delete_single: { likelihood: 3, consequence: 5 },   // score 15
+  data_delete_bulk:   { likelihood: 4, consequence: 5 },   // score 20 (+4 effective vs single base 15→19 area)
+  web_search:         { likelihood: 1, consequence: 1 },   // score 1
+  external_api:       { likelihood: 2, consequence: 3 },   // score 6
+  system_execute:     { likelihood: 3, consequence: 5 },   // score 15
+  system_files:       { likelihood: 3, consequence: 4 },   // score 12
+  financial:          { likelihood: 3, consequence: 5 },   // score 15
+  default:            { likelihood: 2, consequence: 2 }    // score 4
 };
 
-const KNOWN_TYPES = Object.keys(BASE_SCORES).filter(k => k !== 'default');
+const KNOWN_TYPES = ACTIVITY_TYPES;
 
 const RISK_SIGNALS = {
   increase: [
@@ -37,6 +44,9 @@ export function getThresholds(sliderPosition) {
 }
 
 export function classify(action, activityType, sliderPosition = DEFAULT_SLIDER) {
+  // Resolve deprecated types
+  activityType = resolveActivityType(activityType);
+
   const base = BASE_SCORES[activityType] || BASE_SCORES.default;
   const isUnknownType = !BASE_SCORES[activityType];
 

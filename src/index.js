@@ -2,7 +2,7 @@ import { classify, getThresholds } from './classifier.js';
 import { VelaLite, assessVela } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
-import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL } from './constants.js';
+import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, resolveActivityType } from './constants.js';
 
 let config = {
   llmKey: null,
@@ -35,52 +35,121 @@ export function configure(options = {}) {
   });
 }
 
-export async function assess(action, activityType) {
-  const sliderPosition = config.activities[activityType] ?? DEFAULT_SLIDER;
-  const scored = classify(action, activityType, sliderPosition);
+export async function checkPolicy(action, agentId = null) {
+  return register.checkPolicy(action, agentId);
+}
+
+export async function assess(action, activityType, options = {}) {
+  const agentId = options.agentId || null;
+
+  // Resolve deprecated types
+  const resolvedType = resolveActivityType(activityType);
+
+  // Check trigger policy first
+  const policyDecision = await register.checkPolicy(action, agentId);
+
+  if (policyDecision === 'human_required') {
+    const callId = register.generateCallId();
+    const actionHash = register.hashAction(action);
+    await register.save({
+      callId, actionHash, activityType: resolvedType,
+      tier: 0, riskScore: 0, verdict: 'HOLD', policyDecision: 'human_required'
+    });
+    log('info', `${T1_LABEL} | HOLD | Trigger policy requires human approval | ${resolvedType}`);
+    return {
+      proceed: false, tier: 0, verdict: 'HOLD',
+      riskScore: 0, triggerReason: 'Trigger policy requires human approval',
+      activityType: resolvedType, callId,
+      vela: null, options: null, recommended: null,
+      promptMode: null, t2Attempted: false,
+      wouldEscalate: false, escalateTier: null,
+      parseFailed: false, policyDecision: 'human_required',
+      reason: 'Trigger policy requires human approval'
+    };
+  }
+
+  if (policyDecision === 'no_assessment') {
+    const callId = register.generateCallId();
+    const actionHash = register.hashAction(action);
+    await register.save({
+      callId, actionHash, activityType: resolvedType,
+      tier: 0, riskScore: 0, verdict: 'PROCEED', policyDecision: 'no_assessment'
+    });
+    log('info', `${T1_LABEL} | PROCEED | Trigger policy: no assessment needed | ${resolvedType}`);
+    return {
+      proceed: true, tier: 0, verdict: 'PROCEED',
+      riskScore: 0, triggerReason: 'Trigger policy: no assessment needed',
+      activityType: resolvedType, callId,
+      vela: null, options: null, recommended: null,
+      promptMode: null, t2Attempted: false,
+      wouldEscalate: false, escalateTier: null,
+      parseFailed: false, policyDecision: 'no_assessment',
+      reason: 'Trigger policy: no assessment needed'
+    };
+  }
+
+  // Check activity-level human review requirement
+  const activityConfig = await register.getActivityConfig(resolvedType);
+  if (activityConfig && activityConfig.requires_human_review) {
+    const callId = register.generateCallId();
+    const actionHash = register.hashAction(action);
+    await register.save({
+      callId, actionHash, activityType: resolvedType,
+      tier: 0, riskScore: 0, verdict: 'HOLD', policyDecision: 'human_required'
+    });
+    log('info', `${T1_LABEL} | HOLD | Activity type requires human review | ${resolvedType}`);
+    return {
+      proceed: false, tier: 0, verdict: 'HOLD',
+      riskScore: 0, triggerReason: 'Activity type requires human review',
+      activityType: resolvedType, callId,
+      vela: null, options: null, recommended: null,
+      promptMode: null, t2Attempted: false,
+      wouldEscalate: false, escalateTier: null,
+      parseFailed: false, policyDecision: 'human_required',
+      reason: 'Activity type requires human review'
+    };
+  }
+
+  // Get slider — activity_config DB overrides JS config
+  const sliderPosition = activityConfig?.slider_position
+    ?? config.activities[resolvedType]
+    ?? config.activities[activityType]  // fallback to original (deprecated) key
+    ?? DEFAULT_SLIDER;
+
+  // Run classifier
+  const scored = classify(action, resolvedType, sliderPosition);
   const callId = register.generateCallId();
   const actionHash = register.hashAction(action);
+
+  const wouldEscalate = scored.wouldEscalate;
+  const escalateTier = scored.escalateTier;
 
   // Determine prompt mode from threshold
   const thresholds = getThresholds(sliderPosition);
   const promptMode = scored.riskScore < thresholds.t2 ? 'oneliner' : 'tldr';
   const tier = promptMode === 'oneliner' ? 1 : 2;
 
-  // Save to register — verdict will be determined by Vela Lite
-  // Save tier from threshold determination
+  // Save to register with pending verdict
   await register.save({
-    callId,
-    actionHash,
-    activityType: scored.activityType,
-    tier,
-    riskScore: scored.riskScore,
-    verdict: 'PENDING'
+    callId, actionHash, activityType: scored.activityType,
+    tier, riskScore: scored.riskScore, verdict: 'PENDING', policyDecision: 'assess'
   });
 
   // No LLM key — fall back to rules engine formatted one-liner
   if (!config.llmKey) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (No LLM key — rules engine only)`);
-
-    // Update verdict in register
     await register.updateVerdict(callId, 'PROCEED');
 
     return {
-      proceed: true,
-      tier,
-      verdict: 'PROCEED',
-      riskScore: scored.riskScore,
-      triggerReason: scored.triggerReason,
-      activityType: scored.activityType,
-      callId,
+      proceed: true, tier, verdict: 'PROCEED',
+      riskScore: scored.riskScore, triggerReason: scored.triggerReason,
+      activityType: scored.activityType, callId,
       vela: formatted + '\n(No LLM key configured — Vela Lite assessment unavailable)',
-      options: null,
-      recommended: null,
-      promptMode,
-      t2Attempted: false,
-      wouldEscalate: scored.wouldEscalate,
-      escalateTier: scored.escalateTier,
-      parseFailed: false
+      options: null, recommended: null,
+      promptMode, t2Attempted: false,
+      wouldEscalate, escalateTier,
+      parseFailed: false, policyDecision: 'assess'
     };
   }
 
@@ -92,50 +161,31 @@ export async function assess(action, activityType) {
     );
 
     log('info', vela.formatted);
-
-    // Update verdict in register
     await register.updateVerdict(callId, vela.verdict);
 
     return {
-      proceed: vela.verdict === 'PROCEED',
-      tier,
-      verdict: vela.verdict,
-      riskScore: scored.riskScore,
-      triggerReason: scored.triggerReason,
-      activityType: scored.activityType,
-      callId,
-      vela: vela.formatted,
-      options: vela.options,
-      recommended: vela.recommended,
-      promptMode,
-      t2Attempted: true,
-      wouldEscalate: scored.wouldEscalate,
-      escalateTier: scored.escalateTier,
-      parseFailed: vela.parseFailed
+      proceed: vela.verdict === 'PROCEED', tier, verdict: vela.verdict,
+      riskScore: scored.riskScore, triggerReason: scored.triggerReason,
+      activityType: scored.activityType, callId,
+      vela: vela.formatted, options: vela.options, recommended: vela.recommended,
+      promptMode, t2Attempted: true,
+      wouldEscalate, escalateTier,
+      parseFailed: vela.parseFailed, policyDecision: 'assess'
     };
   } catch (err) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (Vela Lite call failed: ${err.message})`);
-
-    // Update verdict in register
     await register.updateVerdict(callId, 'PROCEED');
 
     return {
-      proceed: true,
-      tier,
-      verdict: 'PROCEED',
-      riskScore: scored.riskScore,
-      triggerReason: scored.triggerReason,
-      activityType: scored.activityType,
-      callId,
+      proceed: true, tier, verdict: 'PROCEED',
+      riskScore: scored.riskScore, triggerReason: scored.triggerReason,
+      activityType: scored.activityType, callId,
       vela: formatted + `\n(Vela Lite call failed: ${err.message})`,
-      options: null,
-      recommended: null,
-      promptMode,
-      t2Attempted: false,
-      wouldEscalate: scored.wouldEscalate,
-      escalateTier: scored.escalateTier,
-      parseFailed: false
+      options: null, recommended: null,
+      promptMode, t2Attempted: false,
+      wouldEscalate, escalateTier,
+      parseFailed: false, policyDecision: 'assess'
     };
   }
 }
@@ -152,7 +202,19 @@ export async function stats() {
   return register.stats();
 }
 
-export const radar = { configure, assess, strategy, history, stats };
+// Re-export register config methods for direct use
+export async function saveActivityConfig(activityType, actConfig) {
+  return register.saveActivityConfig(activityType, actConfig);
+}
+
+export async function savePolicy(actionPattern, policy, agentId = null) {
+  return register.savePolicy(actionPattern, policy, agentId);
+}
+
+export const radar = {
+  configure, assess, strategy, history, stats,
+  checkPolicy, saveActivityConfig, savePolicy
+};
 
 export { VelaLite };
 
