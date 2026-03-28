@@ -48,8 +48,9 @@ async function ensureDb() {
       created_at TEXT NOT NULL
     )
   `);
-  // Migration: add radar_enabled column if upgrading from older schema
+  // Migrations for older schemas
   try { db.run('ALTER TABLE assessments ADD COLUMN radar_enabled INTEGER DEFAULT 1'); } catch (e) {}
+  try { db.run("ALTER TABLE assessments ADD COLUMN strategy_scope TEXT DEFAULT 'single'"); } catch (e) {}
   db.run('CREATE INDEX IF NOT EXISTS idx_activity ON assessments(activity_type)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tier ON assessments(tier)');
   db.run('CREATE INDEX IF NOT EXISTS idx_created ON assessments(created_at)');
@@ -205,11 +206,11 @@ export async function updateVerdict(callId, verdict) {
   persistDb();
 }
 
-export async function updateStrategy(callId, strategy, decidedBy, velaOverridden = false) {
+export async function updateStrategy(callId, strategy, decidedBy, velaOverridden = false, scope = 'single') {
   const db = await ensureDb();
   db.run(
-    `UPDATE assessments SET chosen_strategy = ?, decided_by = ?, vela_overridden = ? WHERE id = ?`,
-    [strategy, decidedBy, velaOverridden ? 1 : 0, callId]
+    `UPDATE assessments SET chosen_strategy = ?, decided_by = ?, vela_overridden = ?, strategy_scope = ? WHERE id = ?`,
+    [strategy, decidedBy, velaOverridden ? 1 : 0, scope, callId]
   );
   const changes = db.getRowsModified();
   persistDb();
