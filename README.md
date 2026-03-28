@@ -46,7 +46,9 @@ if (!result.proceed) {
 // Record chosen strategy
 await radar.strategy(result.callId, 'mitigate', {
   justification: 'staged rollout approved',
-  decidedBy: 'human'
+  decidedBy: 'human',
+  scope: 'single'  // 'single' (default) | 'pattern'
+                    // pattern matching coming in future version
 });
 ```
 
@@ -92,6 +94,23 @@ Every call to `radar.assess()` follows this flow:
 6. **Slider threshold determines output depth:**
    - Score below T2 threshold → `oneliner` mode (tier 1)
    - Score at or above T2 threshold → `tldr` mode with four options (tier 2)
+
+## Prior Decision Matching
+
+When the same action string is submitted more than once, Vela Lite receives the prior verdict as context and factors it into the current assessment. This reduces unnecessary re-flagging of actions you have already reviewed.
+
+Matching is exact — based on a SHA256 hash of the action string. One character different = no match.
+
+If you want to pre-approve a class of similar actions without exact matching, use Trigger Policy instead:
+
+```javascript
+await radar.savePolicy(
+  'Send newsletter to * subscribers',
+  'no_assessment'
+);
+```
+
+Pattern-level acceptance (marking a reviewed decision as applicable to similar future actions) is planned for a future version.
 
 ## Return object
 
