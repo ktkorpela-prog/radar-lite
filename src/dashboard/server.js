@@ -454,5 +454,18 @@ export function startDashboard(port = 4040) {
     }).catch(() => {});
   });
 
+  // Graceful shutdown — release port on SIGINT/SIGTERM
+  const shutdown = () => {
+    console.log('\n  Shutting down dashboard server...');
+    server.close(() => {
+      console.log('  Server closed.\n');
+      process.exit(0);
+    });
+    // Force exit if close takes too long
+    setTimeout(() => process.exit(1), 3000);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+
   return server;
 }
