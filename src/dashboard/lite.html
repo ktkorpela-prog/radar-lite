@@ -3,18 +3,1719 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VELA LITE · dashboard</title>
+<title>RADAR Lite — Risk Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
 <style>
-  body { background: #0a0a0a; color: #c0c0c0; font-family: 'Space Mono', monospace; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-  .placeholder { text-align: center; }
-  h1 { color: #00ff88; font-size: 16px; letter-spacing: 2px; }
-  p { color: #666; font-size: 12px; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d0d0d; color: #f0ede8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  .mono { font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace; }
+
+  /* Auth gate — fullscreen radar + floating card */
+  #auth-gate { position:fixed; inset:0; z-index:500; background:#060a07; transition:opacity 0.4s ease; }
+  #auth-gate::before { content:''; position:fixed; inset:0; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.025) 2px,rgba(0,0,0,0.025) 4px); pointer-events:none; z-index:4; }
+  #auth-gate::after { content:''; position:fixed; inset:0; background-image:linear-gradient(rgba(0,255,136,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,136,0.04) 1px,transparent 1px); background-size:40px 40px; pointer-events:none; z-index:3; }
+  #auth-radar-canvas { position:fixed; inset:0; z-index:1; display:block; width:100%; height:100%; }
+  .auth-card-wrap { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:10; }
+  .auth-card { width:380px; padding:44px 40px 36px; background:rgba(6,10,7,0.82); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); border:1px solid rgba(0,255,136,0.18); position:relative; text-align:center; }
+  .auth-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:#00ff88; box-shadow:0 0 12px rgba(0,255,136,0.5); }
+  .auth-card .logo { font-family:'Space Mono',monospace; font-size:22px; font-weight:700; color:#00ff88; letter-spacing:.18em; animation:flashGreen 2.4s ease-in-out infinite; }
+  .auth-card .welcome { font-family:'Space Mono',monospace; font-size:10px; letter-spacing:.25em; text-transform:uppercase; color:rgba(255,255,255,0.6); margin-top:10px; margin-bottom:28px; }
+  .auth-input-wrap { position:relative; margin-bottom:12px; }
+  .auth-card input[type="text"], .auth-card input[type="password"] { width:100%; height:48px; padding:0 44px 0 14px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.92); font-family:'Space Mono',monospace; font-size:13px; letter-spacing:.04em; outline:none; transition:border-color .2s,box-shadow .2s; }
+  .auth-card input::placeholder { color:rgba(255,255,255,0.3); }
+  .auth-card input:focus { border-color:#00ff88; box-shadow:0 0 0 3px rgba(0,255,136,0.12); }
+  .auth-card input.error { border-color:#ff4444; animation:authShake .4s ease; }
+  .auth-toggle-vis { position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:rgba(255,255,255,0.3); cursor:pointer; font-size:16px; }
+  .auth-toggle-vis:hover { color:rgba(255,255,255,0.7); }
+  .auth-card .auth-btn { width:100%; height:46px; background:#00ff88; border:2px solid #00ff88; color:#060a07; font-family:'Space Mono',monospace; font-size:12px; letter-spacing:.15em; text-transform:uppercase; font-weight:700; cursor:pointer; clip-path:polygon(7px 0%,100% 0%,calc(100% - 7px) 100%,0% 100%); transition:all .25s; }
+  .auth-card .auth-btn:hover { background:transparent; color:#00ff88; }
+  .auth-card .auth-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .auth-card .auth-btn.success { background:#00ff88; color:#060a07; }
+  .auth-status-msg { font-family:'Space Mono',monospace; font-size:11px; letter-spacing:.06em; margin-top:10px; min-height:18px; }
+  .auth-status-msg.checking { color:#d4a832; }
+  .auth-status-msg.err { color:#ff4444; }
+  .auth-status-msg.ok { color:#00ff88; }
+  .auth-links { margin-top:24px; padding-top:20px; border-top:1px solid rgba(255,255,255,0.08); }
+  .auth-links a { display:block; font-family:'Space Mono',monospace; font-size:11px; letter-spacing:.06em; color:rgba(255,255,255,0.3); text-decoration:none; margin-bottom:8px; transition:color .2s; }
+  .auth-links a:hover { color:rgba(255,255,255,0.6); }
+  .auth-links .green { color:#00ff88; }
+  .auth-footer-bar { position:fixed; bottom:0; left:0; right:0; z-index:10; padding:16px 32px; display:flex; justify-content:space-between; align-items:center; }
+  .auth-footer-bar .brand { font-family:'Space Mono',monospace; font-size:13px; letter-spacing:.12em; }
+  .auth-footer-bar .fg { color:#00ff88; animation:flashGreen 2.4s ease-in-out infinite; }
+  .auth-footer-bar .fw { color:rgba(255,255,255,0.6); }
+  .auth-footer-bar .tagline { font-family:'Space Mono',monospace; font-size:10px; letter-spacing:.18em; color:rgba(255,255,255,0.35); }
+  @keyframes flashGreen { 0%,100%{opacity:1;text-shadow:0 0 18px rgba(0,255,136,0.7)} 45%{opacity:.55;text-shadow:none} 55%{opacity:1;text-shadow:0 0 24px rgba(0,255,136,0.9)} }
+  @keyframes authShake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
+
+  /* Dashboard */
+  #dashboard { display: none; max-width: 1200px; margin: 0 auto; padding: 24px; }
+  .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; padding-bottom: 16px; border-bottom: 1px solid #2a2a2a; }
+  .header h1 { font-size: 20px; letter-spacing: 2px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .plan-badge { padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; letter-spacing: 1px; }
+  .plan-free { background: #2a2a2a; color: #8a8a8a; }
+  .plan-paid { background: #c4943a22; color: #c4943a; }
+  .logout-btn { background: none; border: 1px solid #2a2a2a; color: #c0bdb8; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  .logout-btn:hover { border-color: #f87171; color: #f87171; }
+  .viewing-agent { font-size: 13px; color: #c4943a; font-weight: 500; }
+  .header-byline { font-size: 12px; color: #909090; margin-top: 2px; }
+  .header-byline a { color: #909090; transition: color 0.15s; }
+  .header-byline a:hover { color: #c4943a; }
+  .header-nav-link { color: #c0bdb8; font-size: 13px; text-decoration: none; transition: color 0.15s; }
+  .header-nav-link:hover { color: #c4943a; }
+  .dashboard-footer { border-top: 1px solid #2a2a2a; padding: 24px; text-align: center; margin-top: 40px; font-size: 12px; color: #909090; line-height: 1.8; }
+  .dashboard-footer a { color: #909090; text-decoration: none; transition: color 0.15s; }
+  .dashboard-footer a:hover { color: #c4943a; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 1px solid #2a2a2a; }
+  .tab { padding: 10px 20px; cursor: pointer; color: #8a8a8a; font-size: 14px; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab:hover { color: #f0ede8; }
+  .tab.active { color: #c4943a; border-bottom-color: #c4943a; }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* Agent filter bar */
+  .agent-filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; padding: 10px 16px; background: #161616; border: 1px solid #2a2a2a; border-radius: 6px; }
+  .agent-filter-bar label { font-size: 14px; color: #c0bdb8; font-weight: 500; }
+  .agent-select { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; padding: 6px 12px; color: #f0ede8; font-size: 13px; cursor: pointer; min-width: 220px; }
+  .agent-select:focus { outline: none; border-color: #c4943a; }
+  .agent-clear { background: none; border: none; color: #555; font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+  .agent-clear:hover { color: #f87171; }
+
+  /* Stat cards */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 20px; text-align: center; }
+  .stat-card .label { color: #c0bdb8; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; color: #ffffff; }
+  .stat-card.t1 .value { color: #4ade80; }
+  .stat-card.t2 .value { color: #60a5fa; }
+  .stat-card.t3 .value { color: #fbbf24; }
+  .stat-card.t4 .value { color: #f87171; }
+
+  /* Agent overview cards */
+  .agent-cards { margin-bottom: 24px; }
+  .agent-cards h3 { font-size: 13px; color: #c0bdb8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  .agent-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .agent-card { background: #161616; border: 1px solid #2a2a2a; border-radius: 6px; padding: 14px 16px; cursor: pointer; transition: border-color 0.15s; display: flex; justify-content: space-between; align-items: center; }
+  .agent-card:hover { border-color: #c4943a; }
+  .agent-card.active { border-color: #c4943a; background: #1a1a1a; }
+  .agent-card-name { font-size: 14px; font-weight: 500; color: #ffffff; }
+  .agent-card-stats { display: flex; gap: 12px; font-size: 13px; color: #c0bdb8; align-items: center; }
+  .agent-card-stats .count { font-weight: 600; color: #ffffff; }
+  .hold-rate { font-weight: 600; }
+  .hold-rate.warn { color: #fbbf24; }
+  .hold-rate.danger { color: #f87171; }
+
+  /* Chart layout */
+  .chart-container { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+  .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .charts-row .chart-container { margin-bottom: 0; }
+
+  /* Box plot */
+  .boxplot-container { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 16px; min-height: 200px; position: relative; display: flex; flex-direction: column; }
+  .boxplot-container svg { flex: 1; width: 100%; }
+  .boxplot-tooltip { position: absolute; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #f0ede8; z-index: 10; pointer-events: none; white-space: nowrap; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+
+  /* Table */
+  .table-container { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 900px; }
+  th { text-align: left; padding: 12px 16px; color: #ffffff; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid #2a2a2a; background: #161616; }
+  td { padding: 12px 16px; border-bottom: 1px solid #2a2a2a; font-size: 14px; color: #f0ede8; }
+  tbody tr:nth-child(even of .call-row) { background: #1a1a1a; }
+  tbody tr:nth-child(odd of .call-row) { background: #141414; }
+  tbody tr:nth-child(even):not(.call-row):not(.expand-row) { background: #1a1a1a; }
+  tbody tr:nth-child(odd):not(.call-row):not(.expand-row) { background: #141414; }
+  .call-row:hover, tbody tr:not(.expand-row):not(.call-row):hover { background: #242424 !important; }
+  .tier-badge { padding: 4px 10px; border-radius: 3px; font-size: 12px; font-weight: 700; }
+  .tier-1 { background: #1a4a2a; color: #ffffff; }
+  .tier-2 { background: #1a2a4a; color: #ffffff; }
+  .tier-3 { background: #4a3a1a; color: #ffffff; }
+  .tier-4 { background: #4a1a1a; color: #ffffff; }
+  .verdict-hold { color: #f87171; font-weight: 600; }
+  .verdict-proceed { color: #4ade80; font-weight: 600; }
+  .upgrade-msg { text-align: center; padding: 40px; color: #c0bdb8; font-size: 14px; }
+  .upgrade-msg a { color: #c4943a; }
+  .upgrade-msg .docs-hint { display: block; margin-top: 10px; font-size: 13px; color: #909090; }
+  .upgrade-msg .docs-hint a { color: #c4943a; }
+  .agent-link { color: #c4943a; cursor: pointer; font-size: 14px; font-weight: 500; }
+  .agent-link:hover { text-decoration: underline; }
+  td.trunc { color: #e0ddd8; font-size: 13px; }
+  td .activity-text { color: #ffffff; font-weight: 500; }
+
+  /* Settings */
+  .settings-section { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 24px; margin-bottom: 16px; }
+  .settings-section h3 { font-size: 14px; margin-bottom: 16px; color: #c0bdb8; text-transform: uppercase; letter-spacing: 1px; }
+  .setting-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
+  .setting-label { color: #c0bdb8; font-size: 14px; }
+  .setting-value { font-size: 14px; }
+  .setting-input { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; padding: 8px 12px; color: #f0ede8; font-size: 13px; width: 300px; }
+  .setting-input:focus { outline: none; border-color: #c4943a; }
+  .btn-sm { padding: 6px 16px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+  .btn-primary { background: #c4943a; color: #0d0d0d; }
+  .btn-primary:hover { background: #d4a44a; }
+  .btn-danger { background: #4a1a1a; color: #f87171; border: 1px solid #f8717133; }
+  .btn-danger:hover { background: #5a2a2a; }
+  .btn-disabled { opacity: 0.4; cursor: not-allowed; }
+  .vela-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; background: #2a1a3a; color: #c084fc; cursor: pointer; user-select: none; }
+  .vela-badge:hover { background: #3a2a4a; }
+
+  /* Expandable rows */
+  .call-row { cursor: pointer; transition: background 0.15s; }
+  .call-row:hover { background: #1a1a1a; }
+  .expand-row td { padding: 0; border-bottom: 1px solid #1a1a1a; }
+  .expand-inner { padding: 16px 20px; background: #121218; font-size: 14px; line-height: 1.7; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .expand-inner .full-width { grid-column: 1 / -1; }
+  .expand-label { color: #c0bdb8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 500; }
+  .expand-value { color: #e0ddd8; word-break: break-word; font-size: 14px; }
+  .expand-value strong, .expand-value b { color: #ffffff; font-weight: 500; }
+  .expand-value.muted { color: #909090; font-style: italic; }
+  .trunc { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .fb-btn { padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; cursor: pointer; border: 1px solid #2a2a2a; background: #161616; color: #c0bdb8; margin: 0 2px; }
+  .fb-btn:hover { border-color: #c4943a; color: #c4943a; }
+  .fb-btn.active { border-color: #c4943a; background: #c4943a22; color: #c4943a; }
+  .outcome-followed { color: #4ade80; font-weight: 600; }
+  .outcome-overridden { color: #fbbf24; font-weight: 600; }
+  .outcome-escalated { color: #f87171; font-weight: 600; }
+  .outcome-deferred { color: #909090; }
+  .accuracy-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .accuracy-card { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 20px; }
+  .accuracy-card .label { color: #c0bdb8; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .accuracy-card .value { font-size: 24px; font-weight: 700; color: #ffffff; }
+  .accuracy-card .sub { color: #a0a0a0; font-size: 12px; margin-top: 4px; }
+
+  /* Activity sliders */
+  .slider-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1a1a1a; }
+  .slider-row:last-of-type { border-bottom: none; }
+  .slider-label-col { width: 220px; flex-shrink: 0; }
+  .slider-label { font-size: 14px; color: #ffffff; font-weight: 500; }
+  .slider-label .custom-badge { font-size: 10px; background: #2a2a2a; color: #a0a0a0; padding: 1px 5px; border-radius: 3px; margin-left: 6px; vertical-align: middle; }
+  .slider-track { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .slider-track .slider-bound { font-size: 12px; color: #a0a0a0; min-width: 70px; }
+  .slider-track .slider-bound:last-child { text-align: right; }
+  .slider-value-label { min-width: 90px; text-align: right; font-size: 12px; font-weight: 600; color: #c4943a; }
+  .slider-saved { color: #4ade80; font-size: 11px; font-weight: 600; margin-left: 8px; opacity: 0; transition: opacity 0.2s; }
+  .slider-saved.show { opacity: 1; }
+  .slider-delete { background: none; border: none; color: #555; font-size: 14px; cursor: pointer; padding: 2px 6px; opacity: 0; transition: opacity 0.15s; }
+  .slider-row:hover .slider-delete { opacity: 1; }
+  .slider-delete:hover { color: #f87171; }
+  input[type="range"].activity-slider { -webkit-appearance: none; appearance: none; flex: 1; height: 4px; background: #2a2a2a; border-radius: 2px; outline: none; }
+  input[type="range"].activity-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #c4943a; cursor: pointer; border: 2px solid #0d0d0d; box-shadow: 0 0 4px rgba(196,148,58,0.4); }
+  input[type="range"].activity-slider::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #c4943a; cursor: pointer; border: 2px solid #0d0d0d; }
+  .add-activity-btn { background: none; border: 1px dashed #2a2a2a; color: #c4943a; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-top: 12px; transition: border-color 0.2s; }
+  .add-activity-btn:hover { border-color: #c4943a; }
+  .add-activity-form { margin-top: 12px; padding: 12px; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 6px; }
+  .add-activity-form input { background: #161616; border: 1px solid #2a2a2a; border-radius: 4px; padding: 8px 12px; color: #f0ede8; font-size: 13px; width: 240px; margin-right: 8px; }
+  .add-activity-form input:focus { outline: none; border-color: #c4943a; }
+  .add-activity-error { color: #f87171; font-size: 11px; margin-top: 6px; }
+  /* Human review toggle */
+  .hr-toggle { display: flex; align-items: center; gap: 6px; margin-left: 8px; cursor: pointer; user-select: none; }
+  .hr-toggle input { display: none; }
+  .hr-switch { width: 32px; height: 16px; border-radius: 8px; background: #2a2a2a; position: relative; transition: background 0.2s; flex-shrink: 0; }
+  .hr-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #555; transition: transform 0.2s, background 0.2s; }
+  .hr-toggle input:checked + .hr-switch { background: #4a1a1a; }
+  .hr-toggle input:checked + .hr-switch::after { transform: translateX(16px); background: #f87171; }
+  .hr-label { font-size: 10px; color: #555; letter-spacing: 0.03em; white-space: nowrap; }
+  .hr-toggle input:checked ~ .hr-label { color: #f87171; }
+  .slider-row.human-required .slider-track { opacity: 0.25; pointer-events: none; }
+  .slider-row.human-required .slider-value-label { color: #f87171; }
+  .deprecated-badge { font-size: 8px; background: #3a2a1a; color: #fbbf24; padding: 1px 4px; border-radius: 2px; margin-left: 4px; vertical-align: middle; }
+  .slider-examples { font-size: 11px; color: #909090; font-style: italic; line-height: 1.5; margin-top: 3px; }
+
+  /* Agents tab */
+  .agents-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .agents-header h2 { font-size: 18px; font-weight: 500; color: #f0ede8; }
+  .agents-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 32px; }
+  .agent-detail-card { background: #161616; border: 1px solid #2a2a2a; border-radius: 8px; padding: 20px; }
+  .agent-detail-card .agent-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .agent-detail-card .agent-id { font-size: 15px; font-weight: 600; color: #ffffff; display: flex; align-items: center; gap: 8px; }
+  .agent-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .agent-status-dot.active { background: #4ade80; box-shadow: 0 0 6px rgba(74,222,128,0.5); }
+  .agent-status-dot.idle { background: #fbbf24; }
+  .agent-status-dot.inactive { background: #555; }
+  .agent-status-badge { font-size: 11px; padding: 2px 8px; border-radius: 3px; font-weight: 600; }
+  .agent-status-badge.active { background: #1a4a2a; color: #4ade80; }
+  .agent-status-badge.idle { background: #4a3a1a; color: #fbbf24; }
+  .agent-status-badge.inactive { background: #2a2a2a; color: #909090; }
+  .agent-detail-card .agent-display-name { font-size: 14px; color: #c0bdb8; margin-bottom: 2px; }
+  .agent-detail-card .agent-desc { font-size: 13px; color: #909090; margin-bottom: 14px; }
+  .agent-detail-card .agent-metrics { display: flex; gap: 16px; font-size: 13px; color: #c0bdb8; margin-bottom: 6px; }
+  .agent-detail-card .agent-metrics strong { color: #ffffff; font-weight: 600; }
+  .agent-detail-card .agent-lastseen { font-size: 12px; color: #909090; margin-bottom: 14px; }
+  .agent-detail-card .agent-actions { display: flex; gap: 8px; }
+  .agent-detail-card .agent-actions button { padding: 5px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #2a2a2a; background: #0d0d0d; color: #c0bdb8; transition: border-color 0.15s, color 0.15s; }
+  .agent-detail-card .agent-actions button:hover { border-color: #c4943a; color: #c4943a; }
+  .agent-detail-card .agent-actions .btn-disable:hover { border-color: #f87171; color: #f87171; }
+
+  .unregistered-section { margin-top: 8px; }
+  .unregistered-section h3 { font-size: 14px; color: #909090; margin-bottom: 12px; }
+  .unreg-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #141414; border: 1px solid #2a2a2a; border-radius: 6px; margin-bottom: 8px; }
+  .unreg-row .unreg-name { font-size: 14px; font-weight: 500; color: #f0ede8; }
+  .unreg-row .unreg-count { font-size: 13px; color: #909090; }
+  .unreg-row button { font-size: 12px; color: #c4943a; background: none; border: none; cursor: pointer; font-weight: 600; }
+  .unreg-row button:hover { text-decoration: underline; }
+
+  /* Agent form panel */
+  .agent-form-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 200; display: flex; align-items: center; justify-content: center; }
+  .agent-form-panel { background: #161616; border: 1px solid #2a2a2a; border-radius: 10px; padding: 32px; width: 520px; max-height: 90vh; overflow-y: auto; }
+  .agent-form-panel h2 { font-size: 18px; font-weight: 500; margin-bottom: 20px; color: #f0ede8; }
+  .agent-form-panel label { display: block; font-size: 13px; color: #c0bdb8; margin-bottom: 4px; margin-top: 14px; }
+  .agent-form-panel input[type="text"], .agent-form-panel textarea { width: 100%; padding: 10px 12px; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; color: #f0ede8; font-size: 14px; font-family: inherit; }
+  .agent-form-panel input:focus, .agent-form-panel textarea:focus { outline: none; border-color: #c4943a; }
+  .agent-form-panel textarea { resize: vertical; min-height: 60px; }
+  .agent-form-panel .form-hint { font-size: 11px; color: #666; margin-top: 3px; }
+  .agent-form-panel .form-error { font-size: 12px; color: #f87171; margin-top: 4px; }
+  .agent-form-panel .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+  .agent-form-panel .form-actions .btn-cancel { padding: 8px 20px; border: 1px solid #2a2a2a; background: none; color: #c0bdb8; border-radius: 4px; cursor: pointer; font-size: 14px; }
+  .agent-form-panel .form-actions .btn-cancel:hover { border-color: #555; }
+  .agent-form-panel .inherit-note { font-size: 11px; color: #666; margin-left: 8px; }
+
+  @media (max-width: 768px) {
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+    .agent-card-grid { grid-template-columns: 1fr; }
+    .agents-grid { grid-template-columns: 1fr; }
+    .agent-form-panel { width: 95%; margin: 0 auto; }
+  }
 </style>
 </head>
 <body>
-<div class="placeholder">
-  <h1>VELA LITE</h1>
-  <p>Dashboard UI — building in parallel session</p>
+
+<!-- Auth Gate -->
+<div id="auth-gate">
+  <canvas id="auth-radar-canvas"></canvas>
+  <div class="auth-card-wrap">
+    <div class="auth-card">
+      <div class="logo">RADAR</div>
+      <div class="welcome">Welcome back</div>
+      <div class="auth-input-wrap">
+        <input type="password" id="key-input" placeholder="Enter dashboard password" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')verifyKey()">
+        <button class="auth-toggle-vis" onclick="toggleKeyVis()" title="Show/hide">&#9673;</button>
+      </div>
+      <button class="auth-btn" id="auth-btn" onclick="verifyKey()">Access dashboard &rarr;</button>
+      <div class="auth-status-msg" id="auth-error"></div>
+      <div class="auth-links">
+        <a href="https://radar.essentianlabs.com">Need the full RADAR? <span class="green">Get it</span> at radar.essentianlabs.com</a>
+        <a href="https://essentianlabs.com">Back to <span class="fw">EssentianLabs</span></a>
+      </div>
+      <div style="margin-top:16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.1em;color:rgba(255,255,255,0.25)">Powered by <span style="color:rgba(255,255,255,0.6)">EssentianLabs</span></div>
+    </div>
+  </div>
+  <div class="auth-footer-bar">
+    <div class="brand"><span class="fg">RADAR</span> <span class="fw">by EssentianLabs</span></div>
+    <div class="tagline">Watching the exits.</div>
+  </div>
 </div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+  <div class="header">
+    <div>
+      <h1>RADAR</h1>
+      <div class="header-byline">by <a href="https://essentianlabs.com">EssentianLabs</a></div>
+      <span class="viewing-agent" id="viewing-agent" style="display:none"></span>
+    </div>
+    <div class="header-right">
+      <span class="plan-badge" id="plan-badge"></span>
+      <span style="color:#c0bdb8;font-size:13px;" id="user-email"></span>
+      <a href="https://radar.essentianlabs.com/docs.html" class="header-nav-link">Docs</a>
+      <a href="https://radar.essentianlabs.com" class="header-nav-link">Home</a>
+      <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('overview')">Overview</div>
+    <div class="tab" onclick="switchTab('calls')">Call Log</div>
+    <div class="tab" onclick="switchTab('agents')">Agents</div>
+    <div class="tab" onclick="switchTab('settings')">Settings</div>
+  </div>
+
+  <!-- Overview -->
+  <div class="tab-panel active" id="panel-overview">
+    <div class="agent-filter-bar" id="agent-filter-overview">
+      <label>Agent:</label>
+      <select class="agent-select" id="agent-select-overview" onchange="onAgentFilter(this.value)">
+        <option value="">All Agents</option>
+      </select>
+      <button class="agent-clear" id="agent-clear-btn" onclick="clearAgentFilter()" style="display:none" title="Clear filter">&times;</button>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><div class="label">Total Calls</div><div class="value" id="stat-total">0</div></div>
+      <div class="stat-card t1"><div class="label">T1</div><div class="value" id="stat-t1">0</div></div>
+      <div class="stat-card t2"><div class="label">T2</div><div class="value" id="stat-t2">0</div></div>
+      <div class="stat-card t3"><div class="label">T3</div><div class="value" id="stat-t3">0</div></div>
+      <div class="stat-card t4"><div class="label">T4</div><div class="value" id="stat-t4">0</div></div>
+      <div class="stat-card"><div class="label">This Month</div><div class="value" id="stat-month" style="color:#c4943a">0</div></div>
+    </div>
+
+    <div id="agent-cards-panel"></div>
+
+    <div class="chart-container" id="sankey-container" style="min-height:200px;position:relative"></div>
+    <div class="boxplot-tooltip" id="sankey-tooltip"></div>
+
+    <div class="charts-row">
+      <div class="chart-container" style="position:relative">
+        <canvas id="chart-daily" height="220"></canvas>
+      </div>
+      <div class="boxplot-container" id="boxplot-container">
+        <div style="font-size:12px;color:#c0bdb8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Daily calls by agent</div>
+        <div id="boxplot-items"></div>
+        <div class="boxplot-tooltip" id="boxplot-tooltip"></div>
+      </div>
+    </div>
+
+    <div id="accuracy-panel"></div>
+    <div class="table-container" id="recent-table"></div>
+  </div>
+
+  <!-- Call Log -->
+  <div class="tab-panel" id="panel-calls">
+    <div class="agent-filter-bar" id="agent-filter-calls">
+      <label>Agent:</label>
+      <select class="agent-select" id="agent-select-calls" onchange="onAgentFilter(this.value)">
+        <option value="">All Agents</option>
+      </select>
+      <span style="color:#2a2a2a;margin:0 4px">|</span>
+      <label>Date:</label>
+      <select class="agent-select" id="date-filter" onchange="onDateFilter(this.value)" style="min-width:160px">
+        <option value="">All time</option>
+        <option value="1">Today</option>
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30">Last 30 days</option>
+      </select>
+    </div>
+    <div id="calls-content"></div>
+  </div>
+
+  <!-- Agents -->
+  <div class="tab-panel" id="panel-agents">
+    <div id="agents-content"></div>
+  </div>
+  <div id="agent-form-container"></div>
+
+  <!-- Settings -->
+  <div class="tab-panel" id="panel-settings">
+    <div class="settings-section">
+      <h3>Activity Slider Config</h3>
+      <div id="config-section"></div>
+    </div>
+  </div>
+
+  <div class="dashboard-footer">
+    RADAR &middot; Risk assessment infrastructure for AI agents<br>
+    Powered by <a href="https://essentianlabs.com">EssentianLabs</a> &middot;
+    <a href="https://radar.essentianlabs.com/docs.html">Documentation</a> &middot;
+    <a href="https://essentianlabs.com">essentianlabs.com</a> &middot;
+    <a href="https://quorum.space">quorum.space</a><br>
+    &copy; 2026 EssentianLabs
+  </div>
+</div>
+
+<script>
+const BASE = window.location.origin;
+const AGENT_COLORS = ['#c4943a','#60a5fa','#4ade80','#f87171','#c084fc','#fbbf24','#38bdf8','#fb923c','#a78bfa','#f472b6'];
+let apiKey = null;
+let subscriberPlan = 'lite';
+let dailyChart = null;
+let callsData = [];
+let agentsList = [];
+let selectedAgent = '';
+let selectedDays = '';
+let allStatsCache = null;
+let allPerDayByAgent = null;
+let lastPerDayByAgent = null;
+
+function authHeaders(extra) {
+  const h = { 'Authorization': 'Bearer ' + apiKey };
+  if (extra) Object.assign(h, extra);
+  return h;
+}
+
+// ─── Auth ───
+function toggleKeyVis() {
+  const inp = document.getElementById('key-input');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+async function verifyKey() {
+  const password = document.getElementById('key-input').value.trim();
+  const btn = document.getElementById('auth-btn');
+  const inp = document.getElementById('key-input');
+  const statusEl = document.getElementById('auth-error');
+
+  // Check if password is required
+  try {
+    const authMode = await fetch(`${BASE}/dashboard/auth-mode`).then(r => r.json());
+    if (!authMode.password_required) {
+      // No password needed — go straight in
+      enterDashboard();
+      return;
+    }
+  } catch (e) {
+    // If auth-mode check fails, try password flow anyway
+  }
+
+  if (!password) return;
+  btn.disabled = true;
+  btn.textContent = 'Verifying...';
+  statusEl.className = 'auth-status-msg checking';
+  statusEl.textContent = 'Verifying...';
+  inp.classList.remove('error');
+
+  try {
+    const r = await fetch(`${BASE}/dashboard/verify-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const d = await r.json();
+    if (d.valid) {
+      sessionStorage.setItem('radar_lite_auth', 'true');
+      statusEl.className = 'auth-status-msg ok';
+      statusEl.textContent = 'Authenticated \u2014 loading dashboard...';
+      btn.textContent = '\u2713 Verified';
+      btn.classList.add('success');
+      setTimeout(() => enterDashboard(), 800);
+    } else {
+      inp.classList.add('error');
+      statusEl.className = 'auth-status-msg err';
+      statusEl.textContent = 'Invalid password \u2014 check and try again';
+      btn.disabled = false;
+      btn.textContent = 'Access dashboard \u2192';
+    }
+  } catch (e) {
+    inp.classList.add('error');
+    statusEl.className = 'auth-status-msg err';
+    statusEl.textContent = 'Connection failed \u2014 try again';
+    btn.disabled = false;
+    btn.textContent = 'Access dashboard \u2192';
+  }
+}
+
+function enterDashboard() {
+  document.getElementById('auth-gate').style.opacity = '0';
+  setTimeout(() => {
+    document.getElementById('auth-gate').style.display = 'none';
+    stopRadarAnimation();
+    document.getElementById('dashboard').style.display = 'block';
+    document.getElementById('plan-badge').textContent = 'LITE';
+    document.getElementById('plan-badge').className = 'plan-badge plan-free';
+    document.getElementById('user-email').textContent = 'local';
+    loadAgents();
+    loadStats();
+    loadSettings();
+  }, 400);
+}
+
+function logout() {
+  sessionStorage.removeItem('radar_lite_auth');
+  document.getElementById('dashboard').style.display = 'none';
+  const gate = document.getElementById('auth-gate');
+  gate.style.display = 'block';
+  gate.style.opacity = '1';
+  document.getElementById('key-input').value = '';
+  document.getElementById('auth-btn').textContent = 'Access dashboard \u2192';
+  document.getElementById('auth-btn').classList.remove('success');
+  document.getElementById('auth-btn').disabled = false;
+  document.getElementById('auth-error').textContent = '';
+  startRadarAnimation();
+}
+
+// ─── Radar sweep animation (landing page style, fullscreen) ───
+let radarAnimId = null;
+let radarConverge = false;
+let radarBlips = [];
+const TIER_COLORS = ['#00ff88', '#66ddff', '#ffcc44', '#ff4444'];
+const TIER_RADII = [0.22, 0.42, 0.62, 0.82];
+
+function startRadarAnimation() {
+  const canvas = document.getElementById('auth-radar-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const DPR = window.devicePixelRatio || 1;
+  function resize() {
+    canvas.width = window.innerWidth * DPR;
+    canvas.height = window.innerHeight * DPR;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+  const w = () => canvas.width / DPR;
+  const h = () => canvas.height / DPR;
+  let sweep = 0;
+  radarConverge = false;
+  radarBlips = [];
+
+  function spawnBlip() {
+    const tier = Math.floor(Math.random() * 4);
+    const bandMin = tier === 0 ? 0.05 : TIER_RADII[tier - 1] + 0.04;
+    const bandMax = TIER_RADII[tier] + 0.04;
+    const r = bandMin + Math.random() * (bandMax - bandMin);
+    const angle = Math.random() * Math.PI * 2;
+    radarBlips.push({ angle, r, color: TIER_COLORS[tier], age: 0, maxAge: 200 + Math.random() * 280, size: 2.2 + Math.random() * 1.8 });
+  }
+  for (let i = 0; i < 14; i++) spawnBlip();
+
+  function draw() {
+    const S = canvas.width;
+    const cx = S / 2, cy = canvas.height / 2;
+    const R = Math.min(S, canvas.height) * 0.36;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.clearRect(0, 0, w(), h());
+
+    const cxL = w() / 2, cyL = h() / 2, RL = Math.min(w(), h()) * 0.36;
+
+    // Background disc
+    ctx.fillStyle = '#060a07';
+    ctx.beginPath(); ctx.arc(cxL, cyL, RL + 3, 0, Math.PI * 2); ctx.fill();
+
+    // Tier rings
+    TIER_RADII.forEach((rf, i) => {
+      ctx.beginPath(); ctx.arc(cxL, cyL, RL * rf, 0, Math.PI * 2);
+      ctx.strokeStyle = ['rgba(0,255,136,0.18)','rgba(102,221,255,0.14)','rgba(255,204,68,0.14)','rgba(255,68,68,0.18)'][i];
+      ctx.lineWidth = 0.8; ctx.stroke();
+    });
+
+    // Outer ring
+    ctx.beginPath(); ctx.arc(cxL, cyL, RL, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1.2; ctx.stroke();
+
+    // Crosshair spokes
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 0.5;
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      ctx.beginPath(); ctx.moveTo(cxL + Math.cos(a) * RL * 0.04, cyL + Math.sin(a) * RL * 0.04);
+      ctx.lineTo(cxL + Math.cos(a) * RL, cyL + Math.sin(a) * RL); ctx.stroke();
+    }
+
+    // Sweep trail
+    const TRAIL = Math.PI * 0.55;
+    for (let i = 0; i < 72; i++) {
+      const a = sweep - (i / 72) * TRAIL;
+      const alpha = (1 - i / 72) * 0.14;
+      ctx.beginPath(); ctx.moveTo(cxL, cyL);
+      ctx.arc(cxL, cyL, RL, a - 0.045, a); ctx.closePath();
+      ctx.fillStyle = `rgba(0,255,136,${alpha})`; ctx.fill();
+    }
+
+    // Sweep arm
+    ctx.beginPath(); ctx.moveTo(cxL, cyL);
+    ctx.lineTo(cxL + Math.cos(sweep) * RL, cyL + Math.sin(sweep) * RL);
+    ctx.strokeStyle = 'rgba(0,255,136,0.9)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+    // Blips
+    radarBlips.forEach(b => {
+      const bx = cxL + Math.cos(b.angle) * RL * b.r;
+      const by = cyL + Math.sin(b.angle) * RL * b.r;
+      const life = 1 - b.age / b.maxAge;
+      const diff = ((sweep - b.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+      const lit = diff < TRAIL;
+      const alpha = lit ? life * 0.9 : life * 0.25;
+      if (alpha < 0.02) return;
+
+      // Glow
+      const grd = ctx.createRadialGradient(bx, by, 0, bx, by, b.size * 5);
+      grd.addColorStop(0, b.color + 'bb'); grd.addColorStop(1, b.color + '00');
+      ctx.beginPath(); ctx.arc(bx, by, b.size * 5, 0, Math.PI * 2);
+      ctx.fillStyle = grd; ctx.globalAlpha = alpha * 0.6; ctx.fill();
+
+      // Dot
+      ctx.beginPath(); ctx.arc(bx, by, b.size, 0, Math.PI * 2);
+      ctx.fillStyle = b.color; ctx.globalAlpha = alpha; ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    // Centre pip
+    ctx.beginPath(); ctx.arc(cxL, cyL, 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#00ff88'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cxL, cyL, 7, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0,255,136,0.3)'; ctx.lineWidth = 1; ctx.stroke();
+
+    // Advance
+    sweep += 0.016;
+    if (sweep > Math.PI * 2) sweep -= Math.PI * 2;
+
+    // Age blips
+    radarBlips.forEach(b => b.age++);
+    const dead = radarBlips.filter(b => b.age >= b.maxAge);
+    dead.forEach(b => { radarBlips.splice(radarBlips.indexOf(b), 1); if (!radarConverge) spawnBlip(); });
+
+    radarAnimId = requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+function stopRadarAnimation() {
+  if (radarAnimId) { cancelAnimationFrame(radarAnimId); radarAnimId = null; }
+}
+
+function switchTab(name) {
+  const tabs = ['overview','calls','agents','settings'];
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'calls') loadCalls();
+  if (name === 'agents') loadAgentsTab();
+}
+
+// ─── Agent Filter ───
+async function loadAgents() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/agents`, { headers: authHeaders() });
+    const d = await r.json();
+    agentsList = d.agents || [];
+  } catch (e) {
+    agentsList = [];
+  }
+  populateAgentDropdowns();
+}
+
+function populateAgentDropdowns() {
+  // Derive counts from cached per-agent data if backend doesn't provide them
+  const derivedCounts = {};
+  if (allPerDayByAgent) {
+    for (const [aid, days] of Object.entries(allPerDayByAgent)) {
+      derivedCounts[aid] = days.reduce((s, d) => s + (d.count || 0), 0);
+    }
+  }
+  ['agent-select-overview', 'agent-select-calls'].forEach(id => {
+    const sel = document.getElementById(id);
+    sel.innerHTML = '<option value="">All Agents</option>';
+    for (const a of agentsList) {
+      const name = a.agent_id || 'Unidentified';
+      const count = a.count || derivedCounts[a.agent_id] || derivedCounts[name] || 0;
+      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${count} calls)</option>`;
+    }
+  });
+}
+
+function onAgentFilter(agentId) {
+  selectedAgent = agentId;
+  // Sync both dropdowns
+  document.getElementById('agent-select-overview').value = agentId;
+  document.getElementById('agent-select-calls').value = agentId;
+  // Show/hide clear button and viewing label
+  const clearBtn = document.getElementById('agent-clear-btn');
+  const viewingEl = document.getElementById('viewing-agent');
+  if (agentId) {
+    clearBtn.style.display = 'inline';
+    viewingEl.textContent = 'Viewing: ' + (agentId || 'Unidentified');
+    viewingEl.style.display = 'block';
+  } else {
+    clearBtn.style.display = 'none';
+    viewingEl.style.display = 'none';
+  }
+  // Re-render charts immediately for colour/highlight change
+  if (allPerDayByAgent) {
+    renderBoxPlot(allPerDayByAgent);
+    if (allStatsCache) renderLineChart(allStatsCache.per_day, allPerDayByAgent);
+  }
+  // Reload data with filter
+  loadStats();
+  if (document.getElementById('panel-calls').classList.contains('active')) loadCalls();
+}
+
+function clearAgentFilter() { onAgentFilter(''); }
+
+function agentParam() {
+  const parts = [];
+  if (selectedAgent) parts.push(`agent_id=${encodeURIComponent(selectedAgent)}`);
+  if (selectedDays) parts.push(`days=${selectedDays}`);
+  return parts.length ? '?' + parts.join('&') : '';
+}
+
+function onDateFilter(days) {
+  selectedDays = days;
+  loadCalls();
+}
+
+// ─── Stats ───
+async function loadStats() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/stats${agentParam()}`, { headers: authHeaders() });
+    const d = await r.json();
+    // Cache unfiltered stats for reference line
+    if (!selectedAgent) allStatsCache = d;
+
+    document.getElementById('stat-total').textContent = d.total_calls;
+    document.getElementById('stat-t1').textContent = d.by_tier[1] || 0;
+    document.getElementById('stat-t2').textContent = d.by_tier[2] || 0;
+    document.getElementById('stat-t3').textContent = d.by_tier[3] || 0;
+    document.getElementById('stat-t4').textContent = d.by_tier[4] || 0;
+    document.getElementById('stat-month').textContent = d.calls_this_month || 0;
+
+    // Derive per_day_by_agent from recent calls if backend doesn't provide it
+    let perDayByAgent = d.per_day_by_agent;
+    if ((!perDayByAgent || Object.keys(perDayByAgent).length < 1) && d.recent && d.recent.length > 0) {
+      perDayByAgent = {};
+      for (const c of d.recent) {
+        const aid = c.agent_id || 'Unidentified';
+        const day = new Date(c.created_at).toISOString().slice(0, 10);
+        if (!perDayByAgent[aid]) perDayByAgent[aid] = {};
+        perDayByAgent[aid][day] = (perDayByAgent[aid][day] || 0) + 1;
+      }
+      for (const [aid, days] of Object.entries(perDayByAgent)) {
+        perDayByAgent[aid] = Object.entries(days).map(([d, count]) => ({ _id: d, count }));
+      }
+    }
+    // Cache unfiltered data for box plot + reference line
+    if (!selectedAgent) {
+      allPerDayByAgent = perDayByAgent;
+      allStatsCache = d;
+    }
+    lastPerDayByAgent = perDayByAgent;
+
+    // Line chart: always use unfiltered agent data for all-agents view
+    renderLineChart(d.per_day, allPerDayByAgent || perDayByAgent);
+    renderRecentTable(d.recent);
+    loadSankey();
+    loadAccuracy();
+    renderAgentCards();
+    // Box plot: render once on unfiltered load only — filtering handled by onAgentFilter
+    if (!selectedAgent && allPerDayByAgent) {
+      renderBoxPlot(allPerDayByAgent);
+      populateAgentDropdowns();
+    }
+  } catch (e) { console.error('Stats error', e); }
+}
+
+// ─── Agent Overview Cards ───
+function renderAgentCards() {
+  const panel = document.getElementById('agent-cards-panel');
+  if (agentsList.length < 2) { panel.innerHTML = ''; return; }
+
+  let html = '<div class="agent-cards"><h3>Agents</h3><div class="agent-card-grid">';
+  for (const a of agentsList) {
+    const name = a.agent_id || 'Unidentified';
+    const active = selectedAgent === (a.agent_id || '') ? ' active' : '';
+    const holdRate = a.total > 0 ? ((a.held || 0) / a.total * 100).toFixed(0) : 0;
+    let holdClass = 'hold-rate';
+    if (holdRate > 40) holdClass += ' danger';
+    else if (holdRate > 25) holdClass += ' warn';
+    html += `<div class="agent-card${active}" onclick="onAgentFilter('${a.agent_id || ''}')">
+      <span class="agent-card-name">${name}</span>
+      <div class="agent-card-stats">
+        <span class="count">${a.count}</span> calls
+        <span>T3: ${a.t3 || 0}</span>
+        <span>T4: ${a.t4 || 0}</span>
+        <span class="${holdClass}">${holdRate}% held</span>
+      </div>
+    </div>`;
+  }
+  html += '</div></div>';
+  panel.innerHTML = html;
+}
+
+// ─── Line Chart (replaces bar chart) ───
+function renderLineChart(perDay, perDayByAgent) {
+  const ctx = document.getElementById('chart-daily').getContext('2d');
+  if (dailyChart) dailyChart.destroy();
+
+  // 30-day window
+  const labels = [];
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    labels.push(d.toISOString().slice(0, 10));
+  }
+
+  // Index all per_day data
+  const byDate = {};
+  for (const d of (perDay || [])) { byDate[d._id] = d.count || 0; }
+
+  const datasets = [];
+
+  // Per-agent lines — show all, highlight selected
+  if (perDayByAgent && Object.keys(perDayByAgent).length > 0) {
+    let colorIdx = 0;
+    for (const [agentId, days] of Object.entries(perDayByAgent)) {
+      const agentByDate = {};
+      for (const d of days) agentByDate[d._id] = d.count || 0;
+      const color = AGENT_COLORS[colorIdx % AGENT_COLORS.length];
+      const isSelected = selectedAgent && selectedAgent === agentId;
+      const isDimmed = selectedAgent && !isSelected;
+      datasets.push({
+        label: agentId || 'Unidentified',
+        data: labels.map(date => agentByDate[date] || 0),
+        borderColor: isDimmed ? '#333' : color,
+        backgroundColor: isDimmed ? '#33333322' : color + '22',
+        borderWidth: isSelected ? 3 : (isDimmed ? 1 : 2),
+        pointRadius: isSelected ? 3 : (isDimmed ? 0 : 2),
+        pointHoverRadius: 5,
+        tension: 0.3,
+        fill: false,
+        order: isSelected ? 0 : 1
+      });
+      colorIdx++;
+    }
+  } else {
+    datasets.push({
+      label: 'All Agents',
+      data: labels.map(date => byDate[date] || 0),
+      borderColor: '#00ff88',
+      backgroundColor: '#00ff8822',
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 5,
+      tension: 0.3,
+      fill: false
+    });
+  }
+
+  // Reference line: daily average across ALL agents (from unfiltered cache)
+  const refSource = allStatsCache ? allStatsCache.per_day : (perDay || []);
+  if (refSource && refSource.length > 0) {
+    const refByDate = {};
+    for (const d of refSource) refByDate[d._id] = d.count || 0;
+    const refData = labels.map(date => refByDate[date] || 0);
+    const totalCalls = refData.reduce((s, v) => s + v, 0);
+    const activeDays = refData.filter(v => v > 0).length || 1;
+    const avg = totalCalls / activeDays;
+    datasets.push({
+      label: 'Avg (' + avg.toFixed(1) + '/day)',
+      data: labels.map(() => +avg.toFixed(1)),
+      borderColor: 'rgba(255,255,255,0.4)',
+      borderWidth: 1.5,
+      borderDash: [6, 4],
+      pointRadius: 0,
+      fill: false,
+      order: 2
+    });
+  }
+
+  dailyChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, position: 'top', labels: { color: '#8a8a8a', boxWidth: 12, font: { size: 11 } } }
+      },
+      scales: {
+        x: { grid: { color: '#1a1a1a' }, ticks: { color: '#555', font: { size: 10 }, maxRotation: 45, callback: function(val) { return this.getLabelForValue(val).slice(5); } } },
+        y: { grid: { color: '#1a1a1a' }, ticks: { color: '#555', stepSize: 1 }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+// ─── Box Plot ───
+function renderBoxPlot(perDayByAgent) {
+  const container = document.getElementById('boxplot-items');
+  container.innerHTML = '';
+
+  if (!perDayByAgent || Object.keys(perDayByAgent).length < 1) {
+    container.innerHTML = '<div style="color:#909090;font-size:13px;padding:40px 0;text-align:center">Agent data not yet available</div>';
+    return;
+  }
+
+  // 30-day window
+  const dayLabels = [];
+  const today = new Date();
+  for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(d.getDate() - i); dayLabels.push(d.toISOString().slice(0, 10)); }
+
+  // Compute per-agent stats
+  const agents = [];
+  let globalMax = 0;
+  let colorIdx = 0;
+  for (const [agentId, days] of Object.entries(perDayByAgent)) {
+    const byDate = {};
+    for (const d of days) byDate[d._id] = d.count || 0;
+    const values = dayLabels.map(date => byDate[date] || 0);
+    const nonZero = values.filter(v => v > 0);
+    const sorted = [...values].sort((a, b) => a - b);
+    const max = sorted[sorted.length - 1];
+    const q1 = sorted[Math.floor(sorted.length * 0.25)];
+    const median = sorted[Math.floor(sorted.length * 0.5)];
+    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const total = values.reduce((s, v) => s + v, 0);
+    const avg = nonZero.length > 0 ? total / nonZero.length : 0;
+    if (max > globalMax) globalMax = max;
+    agents.push({ agentId, values, max, q1, median, q3, total, avg, color: AGENT_COLORS[colorIdx % AGENT_COLORS.length] });
+    colorIdx++;
+  }
+
+  // Horizontal box plot — each agent is a row
+  const rect = document.getElementById('boxplot-container').getBoundingClientRect();
+  const svgW = rect.width - 32;
+  const rowH = 36;
+  const labelW = 100;
+  const margin = { top: 20, right: 16, bottom: 4, left: labelW + 8 };
+  const svgH = margin.top + agents.length * rowH + margin.bottom;
+  const plotW = svgW - margin.left - margin.right;
+  const scale = globalMax > 0 ? globalMax + 1 : 2;
+  const xScale = v => margin.left + (v / scale) * plotW;
+
+  const svg = d3.select(container).append('svg').attr('width', svgW).attr('height', svgH);
+  const g = svg.append('g');
+  const tip = document.getElementById('boxplot-tooltip');
+
+  // X-axis ticks at top
+  const tickCount = Math.min(Math.ceil(scale), 8);
+  for (let i = 0; i <= tickCount; i++) {
+    const val = Math.round(scale / tickCount * i);
+    const x = xScale(val);
+    g.append('line').attr('x1', x).attr('x2', x).attr('y1', margin.top - 4).attr('y2', svgH - margin.bottom).attr('stroke', '#2a2a2a').attr('stroke-width', 1);
+    g.append('text').attr('x', x).attr('y', margin.top - 8).attr('text-anchor', 'middle').attr('fill', '#909090').attr('font-size', '9px').text(val);
+  }
+
+  for (let ai = 0; ai < agents.length; ai++) {
+    const a = agents[ai];
+    const rowY = margin.top + ai * rowH;
+    const midY = rowY + rowH / 2;
+    const isSelected = selectedAgent && selectedAgent === (a.agentId || '');
+    const hasSelection = !!selectedAgent;
+    const dimmed = hasSelection && !isSelected;
+
+    // Agent label (left)
+    g.append('text').attr('x', margin.left - 8).attr('y', midY).attr('dy', '0.35em')
+      .attr('text-anchor', 'end').attr('fill', dimmed ? '#444' : a.color)
+      .attr('font-size', '11px').attr('font-weight', isSelected ? '700' : '500')
+      .attr('cursor', 'pointer')
+      .text(truncate(a.agentId || 'Unidentified', 14))
+      .on('click', () => onAgentFilter(a.agentId || ''));
+
+    // Whisker line (min non-zero to max) — full height of row
+    const minNZ = a.values.filter(v => v > 0).sort((x, y) => x - y)[0] || 0;
+    const boxHalf = 12;
+    g.append('line').attr('x1', xScale(minNZ)).attr('x2', xScale(a.max)).attr('y1', midY).attr('y2', midY)
+      .attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.6)').attr('stroke-width', 1.5);
+    // Whisker caps
+    g.append('line').attr('x1', xScale(minNZ)).attr('x2', xScale(minNZ)).attr('y1', midY - 6).attr('y2', midY + 6)
+      .attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.6)').attr('stroke-width', 1.5);
+    g.append('line').attr('x1', xScale(a.max)).attr('x2', xScale(a.max)).attr('y1', midY - 6).attr('y2', midY + 6)
+      .attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.6)').attr('stroke-width', 1.5);
+
+    // IQR box — ensure minimum visible width
+    const boxX = xScale(a.q1);
+    const boxW = Math.max(8, xScale(a.q3) - boxX);
+    g.append('rect').attr('x', boxX).attr('y', midY - boxHalf).attr('width', boxW).attr('height', boxHalf * 2)
+      .attr('fill', dimmed ? '#1a1a1a' : (a.color + '30')).attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.5)').attr('stroke-width', 1.5).attr('rx', 3);
+
+    // Median line — thick and visible
+    g.append('line').attr('x1', xScale(a.median)).attr('x2', xScale(a.median)).attr('y1', midY - boxHalf).attr('y2', midY + boxHalf)
+      .attr('stroke', dimmed ? '#333' : '#ffffff').attr('stroke-width', 2.5);
+
+    // Scatter bubbles with jitter
+    for (let di = 0; di < a.values.length; di++) {
+      const val = a.values[di];
+      if (val === 0) continue;
+      const jitterY = (Math.random() - 0.5) * (rowH * 0.45);
+      const bx = xScale(val) + (Math.random() - 0.5) * 4;
+      const by = midY + jitterY;
+      const r = isSelected ? 5 : (dimmed ? 2.5 : 3.5);
+      const opacity = isSelected ? 0.9 : (dimmed ? 0.15 : 0.6);
+      const fill = dimmed ? '#444' : a.color;
+
+      g.append('circle').attr('cx', bx).attr('cy', by).attr('r', r)
+        .attr('fill', fill).attr('fill-opacity', opacity)
+        .attr('stroke', isSelected ? '#fff' : 'none').attr('stroke-width', isSelected ? 1.5 : 0)
+        .attr('cursor', 'pointer')
+        .on('click', () => onAgentFilter(a.agentId || ''))
+        .on('mouseenter', function(event) {
+          d3.select(this).attr('r', r + 2).attr('fill', a.color).attr('fill-opacity', 1);
+          tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}<br><span style="color:#909090">Total: ${a.total} (30d) · Avg: ${a.avg.toFixed(1)}/day · Med: ${a.median}</span>`;
+          tip.style.display = 'block';
+          const cr = document.getElementById('boxplot-container').getBoundingClientRect();
+          tip.style.left = (event.clientX - cr.left + 12) + 'px';
+          tip.style.top = (event.clientY - cr.top - 40) + 'px';
+        })
+        .on('mouseleave', function() {
+          d3.select(this).attr('r', r).attr('fill', fill).attr('fill-opacity', opacity);
+          tip.style.display = 'none';
+        });
+    }
+  }
+}
+
+// ─── Tables ───
+function tierBadge(tier) { return `<span class="tier-badge tier-${tier}">T${tier}</span>`; }
+
+function renderRecentTable(calls) {
+  if (!calls || !calls.length) {
+    document.getElementById('recent-table').innerHTML = '<div class="upgrade-msg">No calls yet<span class="docs-hint">New to RADAR? <a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
+    return;
+  }
+  let html = '<table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
+  for (const c of calls) {
+    const time = new Date(c.created_at).toLocaleString();
+    const verdict = c.verdict ? `<span class="verdict-${c.verdict}">${c.verdict}</span>` : '—';
+    const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
+    const agent = c.agent_id ? `<span class="agent-link" onclick="onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
+    html += `<tr><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('recent-table').innerHTML = html;
+}
+
+// ─── Call Log ───
+async function loadCalls() {
+  if (subscriberPlan !== 'paid') {
+    document.getElementById('calls-content').innerHTML = '<div class="upgrade-msg">Upgrade to paid to view full call history</div>';
+    return;
+  }
+  try {
+    const r = await fetch(`${BASE}/dashboard/calls${agentParam()}`, { headers: authHeaders() });
+    const d = await r.json();
+    if (d.upgrade_required) {
+      document.getElementById('calls-content').innerHTML = '<div class="upgrade-msg">Upgrade to paid to view full call history</div>';
+      return;
+    }
+    callsData = d.calls;
+    const colCount = 13;
+    let html = '<div class="table-container"><table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Action</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Models</th><th>Vela</th><th>Outcome</th><th>Response</th></tr></thead><tbody>';
+    for (let i = 0; i < d.calls.length; i++) {
+      const c = d.calls[i];
+      const time = new Date(c.created_at).toLocaleString();
+      const verdict = c.verdict ? `<span class="verdict-${c.verdict}">${c.verdict}</span>` : '—';
+      const models = (c.models_consulted || []).join(', ') || '—';
+      const vela = c.vela_consulted ? `<span class="vela-badge">Vela</span>` : '—';
+      const outcome = renderOutcomeCell(c, i);
+      const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
+      const action = c.tldr?.action ? truncate(c.tldr.action, 50) : truncate(c.activity_type, 50);
+      const agent = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
+      html += `<tr class="call-row" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
+    }
+    html += '</tbody></table></div>';
+    document.getElementById('calls-content').innerHTML = html;
+  } catch (e) { console.error('Calls error', e); }
+}
+
+// ─── Sankey ───
+async function loadSankey() {
+  const container = document.getElementById('sankey-container');
+  try {
+    const r = await fetch(`${BASE}/dashboard/sankey${agentParam()}`, { headers: authHeaders() });
+    const data = await r.json();
+    const totalCalls = data.links ? data.links.reduce((s, l) => s + l.value, 0) : 0;
+    if (!data.nodes || !data.links || data.links.length === 0 || totalCalls < 5) {
+      container.innerHTML = '<div class="upgrade-msg">Not enough data yet (minimum 5 calls needed)<span class="docs-hint">New to RADAR? <a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
+      return;
+    }
+    renderSankey(data);
+  } catch (e) {
+    container.innerHTML = '<div class="upgrade-msg">No data yet<span class="docs-hint">New to RADAR? <a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
+    console.error('Sankey error', e);
+  }
+}
+
+function renderSankey(data) {
+  const container = document.getElementById('sankey-container');
+  container.innerHTML = '';
+  const fullWidth = container.clientWidth;
+  const margin = { top: 44, right: 110, bottom: 16, left: 130 };
+  const width = fullWidth - margin.left - margin.right;
+  const height = 280;
+  const nodeW = 16;
+
+  // Column x positions — force 3 columns with spacing
+  const col1X = 0;
+  const col2X = width * 0.42;
+  const col3X = width - nodeW;
+
+  const svg = d3.select(container).append('svg')
+    .attr('width', fullWidth)
+    .attr('height', height + margin.top + margin.bottom);
+
+  // Step labels above columns
+  const stepY = 16;
+  const g = svg.append('g').attr('transform', `translate(${margin.left},0)`);
+  const stepFont = '-apple-system, BlinkMacSystemFont, sans-serif';
+  [
+    { x: col1X + nodeW/2, l1: 'Step 1: Score', l2: '' },
+    { x: col2X + nodeW/2, l1: 'Step 2: Route', l2: '' },
+    { x: col3X + nodeW/2, l1: 'Step 3: Outcome', l2: '' }
+  ].forEach(s => {
+    g.append('text').attr('x', s.x).attr('y', stepY).attr('text-anchor', 'middle').attr('fill', '#909090').attr('font-size', '11px').attr('font-family', stepFont).text(s.l1);
+  });
+  // Arrows between step labels
+  g.append('text').attr('x', (col1X + col2X) / 2 + nodeW/2).attr('y', stepY + 6).attr('text-anchor', 'middle').attr('fill', '#555').attr('font-size', '12px').text('\u2192');
+  g.append('text').attr('x', (col2X + col3X) / 2 + nodeW/2).attr('y', stepY + 6).attr('text-anchor', 'middle').attr('fill', '#555').attr('font-size', '12px').text('\u2192');
+
+  const main = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+  // Build sankey with auto layout first, then override positions
+  const nodeMap = {};
+  data.nodes.forEach((n, i) => { nodeMap[n.id] = i; n.index = i; });
+
+  const links = data.links.map(l => ({
+    source: nodeMap[l.source], target: nodeMap[l.target], value: l.value, tier: l.tier
+  }));
+
+  const sankey = d3.sankey().nodeId(d => d.index).nodeWidth(nodeW).nodePadding(18).extent([[0, 0], [width, height]]);
+  const graph = sankey({ nodes: data.nodes.map(d => ({ ...d })), links });
+
+  // Override x positions to force 3 columns
+  const tierIds = ['t1','t2','t3','t4'];
+  const outcomeIds = ['proceeded','held','escalated'];
+  for (const node of graph.nodes) {
+    const w = node.x1 - node.x0;
+    if (node.id === 'actions') { node.x0 = col1X; node.x1 = col1X + w; }
+    else if (tierIds.includes(node.id)) { node.x0 = col2X; node.x1 = col2X + w; }
+    else if (outcomeIds.includes(node.id)) { node.x0 = col3X; node.x1 = col3X + w; }
+  }
+  // Recalculate link paths after position override
+  sankey.update(graph);
+
+  const tierColors = { 1: '#4ade80', 2: '#60a5fa', 3: '#fbbf24', 4: '#f87171' };
+  const sTip = document.getElementById('sankey-tooltip');
+
+  // Compute total for percentages
+  const totalCalls = graph.nodes.find(n => n.id === 'actions')?.value || 1;
+
+  function showSTip(event, html) {
+    sTip.innerHTML = html;
+    sTip.style.display = 'block';
+    const cr = container.getBoundingClientRect();
+    sTip.style.left = (event.clientX - cr.left + 12) + 'px';
+    sTip.style.top = (event.clientY - cr.top - 40) + 'px';
+  }
+  function hideSTip() { sTip.style.display = 'none'; }
+
+  // Nodes
+  main.append('g').selectAll('rect').data(graph.nodes).join('rect')
+    .attr('x', d => d.x0).attr('y', d => d.y0).attr('height', d => Math.max(1, d.y1 - d.y0)).attr('width', d => d.x1 - d.x0)
+    .attr('fill', d => {
+      if (d.id === 'actions') return '#c4943a';
+      if (tierColors[d.tier]) return tierColors[d.tier];
+      if (d.id === 'proceeded') return '#4ade80';
+      if (d.id === 'held') return '#555';
+      if (d.id === 'escalated') return '#f87171';
+      return '#909090';
+    }).attr('rx', 2).attr('cursor', 'pointer')
+    .on('mouseenter', function(event, d) {
+      const pct = (d.value / totalCalls * 100).toFixed(1);
+      let label = d.label || d.id;
+      if (d.id === 'actions') label = label.replace(/^Actions assessed/, 'Scored');
+      showSTip(event, `<strong>${label}</strong><br>${d.value} calls &middot; ${pct}% of total`);
+      d3.select(this).attr('opacity', 0.8);
+    })
+    .on('mousemove', function(event) { showSTip(event, sTip.innerHTML); })
+    .on('mouseleave', function() { hideSTip(); d3.select(this).attr('opacity', 1); });
+
+  // Links — colour by outcome, with tooltips
+  main.append('g').attr('fill', 'none').selectAll('path').data(graph.links).join('path')
+    .attr('d', d3.sankeyLinkHorizontal())
+    .attr('stroke', d => {
+      const targetId = d.target.id;
+      if (targetId === 'held') return '#555555';
+      if (targetId === 'escalated') return '#7f1d1d';
+      return tierColors[d.tier] || '#909090';
+    })
+    .attr('stroke-width', d => Math.max(1, d.width))
+    .attr('stroke-opacity', 0.45)
+    .attr('cursor', 'pointer')
+    .on('mouseenter', function(event, d) {
+      const pct = (d.value / totalCalls * 100).toFixed(1);
+      const src = d.source.label || d.source.id;
+      const tgt = d.target.label || d.target.id;
+      showSTip(event, `<strong>${src} &rarr; ${tgt}</strong><br>${d.value} calls &middot; ${pct}% of total`);
+      d3.select(this).attr('stroke-opacity', 0.7);
+    })
+    .on('mousemove', function(event) { showSTip(event, sTip.innerHTML); })
+    .on('mouseleave', function() { hideSTip(); d3.select(this).attr('stroke-opacity', 0.45); });
+
+  // Labels — outside nodes, with subtitles for score ranges
+  const tierSubtitles = { t1: 'score 1\u20134', t2: 'score 5\u20139', t3: 'score 10\u201316', t4: 'score 17\u201325' };
+
+  const labelG = main.append('g');
+  for (const d of graph.nodes) {
+    const isLeft = d.id === 'actions';
+    const x = isLeft ? d.x0 - 8 : d.x1 + 8;
+    const y = (d.y0 + d.y1) / 2;
+    const anchor = isLeft ? 'end' : 'start';
+
+    // Main label — rename "Actions assessed" to "Scored"
+    let mainLabel = d.label;
+    if (d.id === 'actions') mainLabel = mainLabel.replace(/^Actions assessed/, 'Scored');
+
+    const pct = (d.value / totalCalls * 100).toFixed(0);
+
+    labelG.append('text').attr('x', x).attr('y', y - 6).attr('dy', '0.35em')
+      .attr('text-anchor', anchor).attr('fill', '#f0ede8').attr('font-size', '13px').attr('font-weight', '500')
+      .attr('font-family', stepFont).text(mainLabel);
+
+    // Percentage + count below label
+    labelG.append('text').attr('x', x).attr('y', y + 10).attr('text-anchor', anchor)
+      .attr('fill', '#909090').attr('font-size', '10px').attr('font-family', stepFont)
+      .text(`${d.value} calls \u00B7 ${pct}%`);
+
+    // Score range subtitle for tier nodes
+    if (tierSubtitles[d.id]) {
+      labelG.append('text').attr('x', x).attr('y', y + 22).attr('text-anchor', anchor)
+        .attr('fill', '#555').attr('font-size', '9px').attr('font-family', stepFont).text(tierSubtitles[d.id]);
+    }
+  }
+}
+
+// ─── Helpers ───
+function truncate(str, len) { if (!str) return '—'; return str.length > len ? str.slice(0, len) + '…' : str; }
+function esc(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function toggleExpand(i) {
+  const row = document.getElementById('expand-' + i);
+  if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+
+function renderExpandedRow(c, idx) {
+  const triggerFull = c.trigger_reason || '<span class="muted">No trigger reason recorded</span>';
+  const assessment = c.full_assessment || c.vela_reasoning || '<span class="muted">No assessment available</span>';
+  const assumptions = c.assumptions
+    ? '<ul style="margin:0;padding-left:16px">' + c.assumptions.map(a => `<li>${esc(a)}</li>`).join('') + '</ul>'
+    : '<span class="muted">Not yet available</span>';
+  const models = (c.models_consulted || []).join(', ') || '—';
+  const velaTag = c.vela_consulted ? '<span class="vela-badge">Vela consulted</span>' : '<span style="color:#555">Vela not consulted</span>';
+  const agentTag = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '<span style="color:#555">No agent</span>';
+
+  let feedbackHtml = '';
+  if (!c.feedback) {
+    feedbackHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a">
+      <span style="color:#8a8a8a;font-size:11px;margin-right:8px">Rate outcome:</span>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'followed')">Followed</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'overridden')">Overridden</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'escalated')">Escalated</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'deferred')">Deferred</button>
+      &nbsp;&nbsp;
+      <span style="color:#8a8a8a;font-size:11px;margin-right:8px">Vela accuracy:</span>
+      <button class="fb-btn" onclick="event.stopPropagation();submitAccuracy('${c.call_id}',${idx},'accurate')">Accurate</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitAccuracy('${c.call_id}',${idx},'too_cautious')">Too cautious</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitAccuracy('${c.call_id}',${idx},'not_cautious_enough')">Not cautious enough</button>
+    </div>`;
+  }
+
+  return `<div class="expand-inner" onclick="event.stopPropagation()">
+    <div><div class="expand-label">Agent</div><div class="expand-value">${agentTag}</div></div>
+    <div><div class="expand-label">Models consulted</div><div class="expand-value">${models} &nbsp;${velaTag}</div></div>
+    <div class="full-width"><div class="expand-label">Trigger reason</div><div class="expand-value">${triggerFull}</div></div>
+    <div class="full-width"><div class="expand-label">Full assessment</div><div class="expand-value">${assessment}</div></div>
+    <div><div class="expand-label">Assumptions</div><div class="expand-value">${assumptions}</div></div>
+    ${feedbackHtml ? `<div class="full-width">${feedbackHtml}</div>` : ''}
+  </div>`;
+}
+
+function renderOutcomeCell(call, idx) {
+  if (call.feedback) {
+    const cls = 'outcome-' + call.feedback.outcome;
+    const label = call.feedback.outcome.charAt(0).toUpperCase() + call.feedback.outcome.slice(1);
+    const acc = call.feedback.vela_accuracy ? ` <span style="color:#8a8a8a;font-size:10px">(${call.feedback.vela_accuracy})</span>` : '';
+    return `<span class="${cls}">${label}</span>${acc}`;
+  }
+  return `<button class="fb-btn" onclick="event.stopPropagation();toggleExpand(${idx})">Rate</button>`;
+}
+
+// ─── Feedback ───
+async function submitFeedback(callId, idx, outcome) {
+  try {
+    const r = await fetch(`${BASE}/radar/feedback`, {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ call_id: callId, outcome })
+    });
+    const d = await r.json();
+    if (d.success) { callsData[idx].feedback = d.feedback; loadCalls(); }
+  } catch (e) { console.error('Feedback error', e); }
+}
+
+async function submitAccuracy(callId, idx, velaAccuracy) {
+  try {
+    const outcome = callsData[idx].feedback?.outcome || 'followed';
+    const r = await fetch(`${BASE}/radar/feedback`, {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ call_id: callId, outcome, vela_accuracy: velaAccuracy })
+    });
+    const d = await r.json();
+    if (d.success) { callsData[idx].feedback = d.feedback; loadCalls(); }
+  } catch (e) { console.error('Accuracy feedback error', e); }
+}
+
+// ─── Accuracy ───
+async function loadAccuracy() {
+  const panel = document.getElementById('accuracy-panel');
+  try {
+    const r = await fetch(`${BASE}/dashboard/accuracy${agentParam()}`, { headers: authHeaders() });
+    const d = await r.json();
+    if (!d.total_with_feedback || d.total_with_feedback === 0) { panel.innerHTML = ''; return; }
+    const followPct = d.follow_rate != null ? (d.follow_rate * 100).toFixed(0) + '%' : '—';
+    const accPct = d.vela_accuracy_rate != null ? (d.vela_accuracy_rate * 100).toFixed(0) + '%' : '—';
+    const followColor = d.follow_rate >= 0.7 ? '#4ade80' : d.follow_rate >= 0.4 ? '#fbbf24' : '#f87171';
+    const accColor = d.vela_accuracy_rate >= 0.7 ? '#4ade80' : d.vela_accuracy_rate >= 0.4 ? '#fbbf24' : '#f87171';
+    let tierHtml = '';
+    for (const [tier, data] of Object.entries(d.by_tier || {})) {
+      const fRate = data.total > 0 ? ((data.followed / data.total) * 100).toFixed(0) + '%' : '—';
+      const aRate = data.rated > 0 ? ((data.accurate / data.rated) * 100).toFixed(0) + '%' : '—';
+      tierHtml += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>${tier}</span><span>Follow: ${fRate}</span><span>Accurate: ${aRate}</span><span style="color:#8a8a8a">${data.total} rated</span></div>`;
+    }
+    panel.innerHTML = `<div class="accuracy-grid">
+      <div class="accuracy-card"><div class="label">Verdict Follow Rate</div><div class="value" style="color:${followColor}">${followPct}</div><div class="sub">${d.outcomes.followed || 0} of ${d.total_with_feedback} followed RADAR's verdict</div></div>
+      <div class="accuracy-card"><div class="label">Vela Accuracy</div><div class="value" style="color:${accColor}">${accPct}</div><div class="sub">${d.vela_accuracy.accurate || 0} rated accurate of ${Object.values(d.vela_accuracy).reduce((s,v)=>s+v,0)} rated</div></div>
+      <div class="accuracy-card"><div class="label">Outcomes</div><div style="font-size:12px;margin-top:8px"><span class="outcome-followed">Followed: ${d.outcomes.followed||0}</span> &nbsp;<span class="outcome-overridden">Overridden: ${d.outcomes.overridden||0}</span> &nbsp;<span class="outcome-escalated">Escalated: ${d.outcomes.escalated||0}</span> &nbsp;<span class="outcome-deferred">Deferred: ${d.outcomes.deferred||0}</span></div></div>
+      <div class="accuracy-card"><div class="label">By Tier</div><div style="margin-top:8px">${tierHtml || '<span style="color:#8a8a8a;font-size:12px">No data</span>'}</div></div>
+    </div>`;
+  } catch (e) { panel.innerHTML = ''; console.error('Accuracy error', e); }
+}
+
+// ─── Agents Tab ───
+let agentsDetailed = [];
+
+async function loadAgentsTab() {
+  const container = document.getElementById('agents-content');
+  try {
+    const r = await fetch(`${BASE}/dashboard/agents`, { headers: authHeaders() });
+    const d = await r.json();
+    agentsDetailed = d.agents || [];
+  } catch (e) {
+    agentsDetailed = [];
+  }
+  renderAgentsTab();
+}
+
+function agentStatusInfo(lastSeen) {
+  if (!lastSeen) return { cls: 'inactive', label: 'never seen', dot: 'inactive' };
+  const diff = Date.now() - new Date(lastSeen).getTime();
+  const hours = diff / (1000 * 60 * 60);
+  if (hours < 24) return { cls: 'active', label: timeAgo(lastSeen), dot: 'active' };
+  if (hours < 168) return { cls: 'idle', label: timeAgo(lastSeen), dot: 'idle' };
+  return { cls: 'inactive', label: timeAgo(lastSeen), dot: 'inactive' };
+}
+
+function timeAgo(ts) {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + ' min ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.floor(hrs / 24);
+  return days + 'd ago';
+}
+
+function renderAgentsTab() {
+  const container = document.getElementById('agents-content');
+  const registered = agentsDetailed.filter(a => !a.unregistered);
+  const unregistered = agentsDetailed.filter(a => a.unregistered);
+
+  let html = `<div class="agents-header"><h2>Your agents</h2><button class="btn-sm btn-primary" onclick="openAgentForm()">+ Register agent</button></div>`;
+
+  if (registered.length > 0) {
+    html += '<div class="agents-grid">';
+    for (const a of registered) {
+      const status = agentStatusInfo(a.last_seen);
+      const holdRate = a.total > 0 ? ((a.held || 0) / a.total * 100).toFixed(0) : 0;
+      let holdCls = '';
+      if (holdRate > 40) holdCls = ' style="color:#f87171"';
+      else if (holdRate > 25) holdCls = ' style="color:#fbbf24"';
+
+      html += `<div class="agent-detail-card">
+        <div class="agent-top">
+          <div class="agent-id"><span class="agent-status-dot ${status.dot}"></span>${esc(a.agent_id)}</div>
+          <span class="agent-status-badge ${status.cls}">${status.cls}</span>
+        </div>
+        ${a.display_name ? `<div class="agent-display-name">${esc(a.display_name)}</div>` : ''}
+        ${a.description ? `<div class="agent-desc">${esc(a.description)}</div>` : '<div class="agent-desc" style="color:#555">No description</div>'}
+        <div class="agent-metrics">
+          <span><strong>${a.count || 0}</strong> calls</span>
+          <span>T3: <strong>${a.t3 || 0}</strong></span>
+          <span>T4: <strong>${a.t4 || 0}</strong></span>
+          <span${holdCls}>Hold: <strong>${holdRate}%</strong></span>
+        </div>
+        <div class="agent-lastseen">Last seen: ${status.label}</div>
+        <div class="agent-actions">
+          <button onclick="openAgentForm('${esc(a.agent_id)}')">Configure</button>
+          <button onclick="copySnippet('${esc(a.agent_id)}')">Copy snippet</button>
+          <button class="btn-disable" onclick="toggleAgentStatus('${esc(a.agent_id)}', ${a.disabled ? 'false' : 'true'})">${a.disabled ? 'Enable' : 'Disable'}</button>
+        </div>
+      </div>`;
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="upgrade-msg">No registered agents yet. Click "+ Register agent" to get started.<span class="docs-hint"><a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
+  }
+
+  if (unregistered.length > 0) {
+    html += `<div class="unregistered-section"><h3>Unregistered agents (${unregistered.length})</h3>
+      <p style="font-size:13px;color:#909090;margin-bottom:12px">These agents are making RADAR calls but haven't been configured. Register them to set custom risk appetite and webhooks.</p>`;
+    for (const a of unregistered) {
+      html += `<div class="unreg-row">
+        <span class="unreg-name">${esc(a.agent_id)}</span>
+        <span class="unreg-count">${a.count || 0} calls</span>
+        <button onclick="openAgentForm('', '${esc(a.agent_id)}')">Register &rarr;</button>
+      </div>`;
+    }
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function openAgentForm(editAgentId, prefillId) {
+  const existing = editAgentId ? agentsDetailed.find(a => a.agent_id === editAgentId) : null;
+  const isEdit = !!existing;
+  const title = isEdit ? 'Configure agent' : 'Register agent';
+  const agentId = existing?.agent_id || prefillId || '';
+  const displayName = existing?.display_name || '';
+  const description = existing?.description || '';
+  const webhookUrl = existing?.webhook_url || '';
+
+  // Build slider HTML for agent-specific activities
+  const accts = activityConfig || {};
+  let slidersHtml = '<div style="margin-top:8px">';
+  for (const [act, val] of Object.entries(accts)) {
+    const agentVal = existing?.activities?.[act] ?? val;
+    const isInherited = !existing?.activities || existing?.activities?.[act] == null;
+    const inheritNote = isInherited ? '<span class="inherit-note">Inheriting from account</span>' : '';
+    slidersHtml += `<div class="slider-row">
+      <div class="slider-label-col"><span class="slider-label">${formatActivityName(act)}</span></div>
+      <div class="slider-track"><span class="slider-bound">Permissive</span><input type="range" min="0" max="1" step="0.5" value="${agentVal}" class="activity-slider" data-activity="${act}" oninput="this.nextElementSibling && 0"><span class="slider-bound">Conservative</span></div>
+      <span class="slider-value-label">${sliderLabel(agentVal)}</span>${inheritNote}
+    </div>`;
+  }
+  slidersHtml += '</div>';
+
+  const html = `<div class="agent-form-overlay" onclick="if(event.target===this)closeAgentForm()">
+    <div class="agent-form-panel">
+      <h2>${title}</h2>
+      <label>Agent ID</label>
+      <input type="text" id="af-agent-id" value="${esc(agentId)}" placeholder="billing-agent-prod" ${isEdit ? 'disabled style="opacity:0.5"' : ''} oninput="validateAgentId(this)">
+      <div class="form-hint">Lowercase letters, numbers, hyphens only</div>
+      <div class="form-error" id="af-id-error"></div>
+
+      <label>Display name</label>
+      <input type="text" id="af-display-name" value="${esc(displayName)}" placeholder="Billing Agent (Production)">
+
+      <label>Description (optional)</label>
+      <textarea id="af-description" placeholder="What does this agent do?">${esc(description)}</textarea>
+
+      <label>This agent's risk appetite</label>
+      <div id="af-sliders">${slidersHtml}</div>
+
+      <label>Webhook URL (optional)</label>
+      <input type="text" id="af-webhook" value="${esc(webhookUrl)}" placeholder="https://your-app.com/escalation">
+      <div class="form-hint">For T4 escalation notifications</div>
+
+      <div class="form-error" id="af-submit-error"></div>
+      <div class="form-actions">
+        <button class="btn-cancel" onclick="closeAgentForm()">Cancel</button>
+        <button class="btn-sm btn-primary" onclick="submitAgentForm(${isEdit})">${isEdit ? 'Save changes' : 'Register agent'}</button>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('agent-form-container').innerHTML = html;
+}
+
+function closeAgentForm() {
+  document.getElementById('agent-form-container').innerHTML = '';
+}
+
+function validateAgentId(input) {
+  const err = document.getElementById('af-id-error');
+  if (/[^a-z0-9\-]/.test(input.value)) {
+    err.textContent = 'Lowercase letters, numbers, and hyphens only';
+  } else if (input.value.length > 40) {
+    err.textContent = 'Max 40 characters';
+  } else {
+    err.textContent = '';
+  }
+}
+
+async function submitAgentForm(isEdit) {
+  const agentId = document.getElementById('af-agent-id').value.trim();
+  const displayName = document.getElementById('af-display-name').value.trim();
+  const description = document.getElementById('af-description').value.trim();
+  const webhookUrl = document.getElementById('af-webhook').value.trim();
+  const errEl = document.getElementById('af-submit-error');
+
+  if (!agentId) { errEl.textContent = 'Agent ID is required'; return; }
+  if (/[^a-z0-9\-]/.test(agentId)) { errEl.textContent = 'Invalid agent ID format'; return; }
+
+  // Collect slider values
+  const activities = {};
+  document.querySelectorAll('#af-sliders .activity-slider').forEach(sl => {
+    activities[sl.dataset.activity] = parseFloat(sl.value);
+  });
+
+  try {
+    const endpoint = isEdit ? `${BASE}/dashboard/agents/update` : `${BASE}/dashboard/agents/register`;
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ agent_id: agentId, display_name: displayName, description, activities, webhook_url: webhookUrl })
+    });
+    const d = await r.json();
+    if (d.error) { errEl.textContent = d.error; return; }
+    closeAgentForm();
+    loadAgentsTab();
+    loadAgents(); // Refresh dropdown
+  } catch (e) {
+    errEl.textContent = 'Failed to save. Check your connection.';
+    console.error('Agent form error', e);
+  }
+}
+
+async function toggleAgentStatus(agentId, disable) {
+  try {
+    await fetch(`${BASE}/dashboard/agents/update`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ agent_id: agentId, disabled: disable })
+    });
+    loadAgentsTab();
+  } catch (e) { console.error('Toggle error', e); }
+}
+
+function copySnippet(agentId) {
+  const snippet = `radar.configure({
+  apiKey: '${apiKey.slice(0, 9)}****',
+  agentId: '${agentId}',
+  llmKey: 'sk-ant-xxxx',
+  activities: {
+    email_single: 'balanced',
+    email_bulk: 'conservative',
+    financial: 'conservative',
+    data_delete_bulk: 'conservative'
+  }
+});`;
+  navigator.clipboard.writeText(snippet).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = '#4ade80';
+    btn.style.borderColor = '#4ade80';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; btn.style.borderColor = ''; }, 2000);
+  });
+}
+
+// ─── Settings ───
+function loadSettings() {
+  loadActivityConfig();
+}
+
+const ACTIVITY_TYPES = [
+  { key: 'email_single', label: 'Email (single)', default: 0.5, examples: ['Send email to user@example.com', 'Reply to support ticket #1234'] },
+  { key: 'email_bulk', label: 'Email (bulk)', default: 1.0, examples: ['Send newsletter to 50,000 subscribers', 'Send password reset to all active users'] },
+  { key: 'publish', label: 'Content publishing', default: 0.5, examples: ['Publish blog post to company website', 'Post update to LinkedIn company page'] },
+  { key: 'data_read', label: 'Data read', default: 0, examples: ['Query user records from database', 'Read config file from local disk'] },
+  { key: 'data_write', label: 'Data write', default: 0.5, examples: ['Update user profile in database', 'Write log entry to audit trail'] },
+  { key: 'data_delete_single', label: 'Data delete (single)', default: 0.5, examples: ['Delete user account #12345', 'Remove record from contacts table'] },
+  { key: 'data_delete_bulk', label: 'Data delete (bulk)', default: 1.0, examples: ['Delete all records older than 2 years', 'Purge inactive accounts matching criteria'] },
+  { key: 'web_search', label: 'Web search', default: 0, examples: ['Search web for recent news on topic', 'Scrape pricing data from competitor site'] },
+  { key: 'external_api_call', label: 'External API call', default: 0.5, examples: ['Call Stripe API to retrieve invoice', 'Send webhook to third-party service'] },
+  { key: 'system_execute', label: 'System execute', default: 1.0, examples: ['Run deployment script on production server', 'Execute database migration'] },
+  { key: 'system_files', label: 'System files', default: 1.0, examples: ['Modify nginx config file', 'Write to /etc/environment'] },
+  { key: 'financial', label: 'Financial', default: 1.0, examples: ['Process payment of £500 to vendor', 'Issue refund to customer #9876'] }
+];
+const DEFAULT_ACTIVITY_KEYS = ACTIVITY_TYPES.map(a => a.key);
+// Legacy types — accepted but deprecated
+const DEPRECATED_TYPES = { email: 'email_single', publishing: 'publish', data_deletion: 'data_delete_single', external_api: 'external_api_call' };
+let activityConfig = {};
+let humanReviewConfig = {};
+
+async function loadActivityConfig() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/stats`, { headers: authHeaders() });
+    const d = await r.json();
+    activityConfig = {};
+    humanReviewConfig = {};
+    for (const a of ACTIVITY_TYPES) activityConfig[a.key] = a.default;
+    if (d.activity_config) {
+      for (const [k, v] of Object.entries(d.activity_config)) {
+        // Migrate deprecated types
+        const mapped = DEPRECATED_TYPES[k] || k;
+        activityConfig[mapped] = typeof v === 'object' ? (v.slider ?? 0.5) : v;
+        if (typeof v === 'object' && v.human_review) humanReviewConfig[mapped] = true;
+      }
+    }
+    if (d.human_review_config) {
+      for (const [k, v] of Object.entries(d.human_review_config)) humanReviewConfig[k] = !!v;
+    }
+  } catch (e) {
+    for (const a of ACTIVITY_TYPES) activityConfig[a.key] = a.default;
+    humanReviewConfig = {};
+  }
+  renderActivitySliders();
+}
+
+function sliderLabel(val) { const n = parseFloat(val); if (n <= 0.1) return 'Permissive'; if (n >= 0.9) return 'Conservative'; return 'Balanced'; }
+function formatActivityName(name) { return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+
+function renderActivitySliders() {
+  const container = document.getElementById('config-section');
+  let html = '';
+  for (const [activity, value] of Object.entries(activityConfig)) {
+    const isCustom = !DEFAULT_ACTIVITY_KEYS.includes(activity);
+    const isHR = !!humanReviewConfig[activity];
+    const hrClass = isHR ? ' human-required' : '';
+    const deleteBtn = isCustom ? `<button class="slider-delete" onclick="deleteActivity('${activity}')" title="Remove">&times;</button>` : '';
+    const badge = isCustom ? '<span class="custom-badge">custom</span>' : '';
+    const typeInfo = ACTIVITY_TYPES.find(t => t.key === activity);
+    const label = typeInfo ? typeInfo.label : formatActivityName(activity);
+    const examples = typeInfo?.examples || [];
+    const examplesHtml = examples.length ? `<div class="slider-examples">${examples.map(e => '"' + e + '"').join(' · ')}</div>` : '';
+
+    html += `<div class="slider-row${hrClass}" id="slider-row-${activity}">
+      <div class="slider-label-col"><span class="slider-label">${label}${badge}</span>${examplesHtml}</div>
+      <div class="slider-track"><span class="slider-bound">Permissive</span><input type="range" min="0" max="1" step="0.5" value="${value}" class="activity-slider" data-activity="${activity}" onchange="onSliderChange(this)" oninput="updateSliderLabel(this)"><span class="slider-bound">Conservative</span></div>
+      <span class="slider-value-label" id="label-${activity}">${isHR ? 'Human review' : sliderLabel(value)}</span>
+      <label class="hr-toggle" title="Require human review for this activity">
+        <input type="checkbox" data-activity="${activity}" onchange="onHumanReviewToggle(this)" ${isHR ? 'checked' : ''}>
+        <span class="hr-switch"></span>
+        <span class="hr-label">Human</span>
+      </label>
+      <span class="slider-saved" id="saved-${activity}">Saved</span>
+      ${deleteBtn}
+    </div>`;
+  }
+  html += `<button class="add-activity-btn" onclick="showAddActivity()">+ Add custom activity</button>`;
+  html += `<div class="add-activity-form" id="add-activity-form" style="display:none"><input type="text" id="new-activity-input" placeholder="e.g. legal_document, sms_send" maxlength="30" oninput="validateActivityName(this)"><button class="btn-sm btn-primary" onclick="addCustomActivity()">Add</button><div class="add-activity-error" id="add-activity-error"></div></div>`;
+  container.innerHTML = html;
+}
+
+function updateSliderLabel(el) {
+  const act = el.dataset.activity;
+  document.getElementById('label-' + act).textContent = humanReviewConfig[act] ? 'Human review' : sliderLabel(el.value);
+}
+async function onSliderChange(el) { activityConfig[el.dataset.activity] = parseFloat(el.value); updateSliderLabel(el); await saveActivityConfig(); showSaved(el.dataset.activity); }
+async function onHumanReviewToggle(el) {
+  const act = el.dataset.activity;
+  humanReviewConfig[act] = el.checked;
+  const row = document.getElementById('slider-row-' + act);
+  if (row) row.classList.toggle('human-required', el.checked);
+  document.getElementById('label-' + act).textContent = el.checked ? 'Human review' : sliderLabel(activityConfig[act] ?? 0.5);
+  await saveActivityConfig();
+  showSaved(act);
+}
+async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig }) }); } catch (e) { console.error('Config save error', e); } }
+function showSaved(activity, text) { const el = document.getElementById('saved-' + activity); if (!el) return; el.textContent = text || 'Saved'; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2000); }
+function validateActivityName(input) { const err = document.getElementById('add-activity-error'); if (/[^a-z0-9_]/.test(input.value)) err.textContent = 'Lowercase letters, numbers, and underscores only'; else if (activityConfig[input.value] !== undefined) err.textContent = 'Activity already exists'; else err.textContent = ''; }
+function showAddActivity() { const f = document.getElementById('add-activity-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; if (f.style.display === 'block') document.getElementById('new-activity-input').focus(); }
+async function addCustomActivity() { const input = document.getElementById('new-activity-input'); const err = document.getElementById('add-activity-error'); const name = input.value.trim(); if (!name) { err.textContent = 'Enter an activity name'; return; } if (/[^a-z0-9_]/.test(name)) { err.textContent = 'Lowercase letters, numbers, and underscores only'; return; } if (name.length > 30) { err.textContent = 'Max 30 characters'; return; } if (activityConfig[name] !== undefined) { err.textContent = 'Activity already exists'; return; } activityConfig[name] = 0.5; await saveActivityConfig(); input.value = ''; err.textContent = ''; document.getElementById('add-activity-form').style.display = 'none'; renderActivitySliders(); showSaved(name); }
+async function deleteActivity(name) { if (DEFAULT_ACTIVITY_KEYS.includes(name)) return; delete activityConfig[name]; delete humanReviewConfig[name]; await saveActivityConfig(); renderActivitySliders(); }
+
+// Auto-login
+window.addEventListener('DOMContentLoaded', async () => {
+  startRadarAnimation();
+  // Check if password is required
+  try {
+    const authMode = await fetch(`${BASE}/dashboard/auth-mode`).then(r => r.json());
+    if (!authMode.password_required) {
+      enterDashboard();
+      return;
+    }
+  } catch (e) {}
+  // Check session
+  const saved = sessionStorage.getItem('radar_lite_auth');
+  if (saved) { enterDashboard(); }
+});
+</script>
 </body>
 </html>
