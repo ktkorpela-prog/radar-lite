@@ -1,5 +1,7 @@
 # @essentianlabs/radar-lite
 
+Early beta for evaluation only.
+
 Local risk assessment for AI agents. Vela Lite structures reasoning about agent actions before they execute.
 
 ## Advisory notice
