@@ -61,6 +61,14 @@ export async function checkPolicy(action, agentId = null) {
 }
 
 export async function assess(action, activityType, options = {}) {
+  // Input validation
+  if (action == null || typeof action !== 'string') {
+    throw new Error('radar.assess() requires a string action description as the first argument');
+  }
+  if (activityType == null || typeof activityType !== 'string') {
+    throw new Error('radar.assess() requires a string activity type as the second argument');
+  }
+
   const agentId = options.agentId || null;
 
   // Check if RADAR is enabled
