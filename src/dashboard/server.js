@@ -5,6 +5,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { timingSafeEqual } from 'crypto';
 import * as register from '../register.js';
 import { VelaLite } from '../vela-lite.js';
+import { getModelName } from '../providers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -380,15 +381,22 @@ export function startDashboard(port = 4040) {
     const env = readEnv();
     const provider = env.LLM_PROVIDER || process.env.LLM_PROVIDER || 'anthropic';
     const apiKey = env.LLM_API_KEY || process.env.LLM_API_KEY || '';
+    const t2Provider = env.T2_PROVIDER || process.env.T2_PROVIDER || '';
+    const t2Key = env.T2_API_KEY || process.env.T2_API_KEY || '';
     res.json({
       provider,
-      api_key_set: apiKey.length > 0
+      api_key_set: apiKey.length > 0,
+      t1_model: getModelName(provider, 'fast'),
+      t2_provider: t2Provider || provider,
+      t2_api_key_set: t2Provider ? t2Key.length > 0 : apiKey.length > 0,
+      t2_model: getModelName(t2Provider || provider, 'reasoning'),
+      t2_same_as_t1: !t2Provider
     });
   });
 
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
   app.post('/dashboard/llm-config', (req, res) => {
-    const { provider, api_key } = req.body;
+    const { provider, api_key, t2_provider, t2_api_key } = req.body;
 
     if (!provider || !VALID_PROVIDERS.includes(provider)) {
       return res.status(400).json({
@@ -397,16 +405,36 @@ export function startDashboard(port = 4040) {
       });
     }
 
+    if (t2_provider && !VALID_PROVIDERS.includes(t2_provider)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid T2 provider. Must be one of: ${VALID_PROVIDERS.join(', ')}`
+      });
+    }
+
     const env = readEnv();
     env.LLM_PROVIDER = provider;
-    if (api_key) {
-      env.LLM_API_KEY = api_key;
+    if (api_key) env.LLM_API_KEY = api_key;
+
+    if (t2_provider) {
+      env.T2_PROVIDER = t2_provider;
+      if (t2_api_key) env.T2_API_KEY = t2_api_key;
+    } else {
+      delete env.T2_PROVIDER;
+      delete env.T2_API_KEY;
     }
+
     writeEnv(env);
 
+    // Update running process env vars
     process.env.LLM_PROVIDER = provider;
-    if (api_key) {
-      process.env.LLM_API_KEY = api_key;
+    if (api_key) process.env.LLM_API_KEY = api_key;
+    if (t2_provider) {
+      process.env.T2_PROVIDER = t2_provider;
+      if (t2_api_key) process.env.T2_API_KEY = t2_api_key;
+    } else {
+      delete process.env.T2_PROVIDER;
+      delete process.env.T2_API_KEY;
     }
 
     res.json({ success: true });
