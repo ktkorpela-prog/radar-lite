@@ -454,20 +454,40 @@
       </div>
     </div>
     <div class="settings-section">
-      <h3>LLM Provider</h3>
-      <div style="margin-bottom:12px;font-size:13px;color:#909090">Configure which LLM Vela Lite uses for local assessments.</div>
+      <h3>T1 Scorer — Fast Model</h3>
+      <div style="margin-bottom:10px;font-size:12px;color:#909090">Fast model for T1 routing verdicts. One-line risk scoring.</div>
       <div class="setting-row" style="gap:12px;flex-wrap:wrap">
-        <select id="llm-provider" class="agent-select" style="min-width:160px" onchange="onLlmProviderChange()">
+        <select id="llm-provider" class="agent-select" style="min-width:160px">
           <option value="anthropic">Anthropic (Claude)</option>
           <option value="openai">OpenAI (GPT)</option>
           <option value="google">Google (Gemini)</option>
         </select>
         <div style="display:flex;gap:8px;flex:1;min-width:200px">
           <input type="password" id="llm-api-key" class="setting-input" placeholder="API key" style="flex:1">
-          <button class="btn-sm btn-primary" onclick="saveLlmConfig()">Save</button>
         </div>
       </div>
-      <div id="llm-save-status" style="font-size:12px;margin-top:8px;min-height:18px"></div>
+      <div style="font-size:11px;color:#555;margin-top:6px" id="t1-model-label">Model: claude-haiku-4-5</div>
+    </div>
+    <div class="settings-section">
+      <h3>T2 Reviewer — Reasoning Model</h3>
+      <div style="margin-bottom:10px;font-size:12px;color:#909090">Reasoning model for T2 risk assessment. Deeper review with four options.</div>
+      <div style="margin-bottom:8px;font-size:11px;color:#666;line-height:1.5">Using a different provider for T2 ensures the model that scores is not the same model that reviews.</div>
+      <div class="setting-row" style="gap:12px;flex-wrap:wrap">
+        <select id="t2-provider" class="agent-select" style="min-width:160px" onchange="onT2ProviderChange()">
+          <option value="same">Same as T1</option>
+          <option value="anthropic">Anthropic (Claude)</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="google">Google (Gemini)</option>
+        </select>
+        <div id="t2-key-wrap" style="display:none;flex:1;min-width:200px">
+          <input type="password" id="t2-api-key" class="setting-input" placeholder="T2 API key" style="width:100%">
+        </div>
+      </div>
+      <div style="font-size:11px;color:#555;margin-top:6px" id="t2-model-label">Model: same as T1</div>
+    </div>
+    <div style="padding:0 24px 16px">
+      <button class="btn-sm btn-primary" onclick="saveLlmConfig()">Save LLM config</button>
+      <div id="llm-save-status" style="font-size:12px;margin-top:8px;min-height:18px;display:inline-block;margin-left:12px"></div>
     </div>
     <div class="settings-section">
       <h3>Activity Slider Config</h3>
@@ -1785,32 +1805,61 @@ function loadSettings() {
   loadActivityConfig();
 }
 
+const MODEL_MAP = {
+  anthropic: { t1: 'claude-haiku-4-5', t2: 'claude-sonnet-4-5' },
+  openai: { t1: 'gpt-4o-mini', t2: 'gpt-4o' },
+  google: { t1: 'gemini-flash', t2: 'gemini-pro' }
+};
+
 async function loadLlmConfig() {
   try {
     const r = await fetch(`${BASE}/dashboard/llm-config`, { headers: authHeaders() });
     const d = await r.json();
     if (d.provider) document.getElementById('llm-provider').value = d.provider;
-    if (d.api_key_set) document.getElementById('llm-api-key').placeholder = 'API key configured (hidden)';
+    if (d.api_key_set) document.getElementById('llm-api-key').placeholder = 'Key configured (hidden)';
+    if (d.t2Provider && d.t2Provider !== d.provider) {
+      document.getElementById('t2-provider').value = d.t2Provider;
+      document.getElementById('t2-key-wrap').style.display = 'flex';
+    }
+    if (d.t2_api_key_set) document.getElementById('t2-api-key').placeholder = 'Key configured (hidden)';
+    updateModelLabels();
   } catch (e) {}
 }
 
-function onLlmProviderChange() {
-  document.getElementById('llm-api-key').placeholder = 'API key for ' + document.getElementById('llm-provider').value;
+function updateModelLabels() {
+  const p1 = document.getElementById('llm-provider').value;
+  const p2sel = document.getElementById('t2-provider').value;
+  const p2 = p2sel === 'same' ? p1 : p2sel;
+  const m1 = MODEL_MAP[p1];
+  const m2 = MODEL_MAP[p2];
+  document.getElementById('t1-model-label').textContent = m1 ? 'Model: ' + m1.t1 : '';
+  document.getElementById('t2-model-label').textContent = p2sel === 'same' ? 'Model: same as T1 (' + (m1 ? m1.t2 : '') + ')' : (m2 ? 'Model: ' + m2.t2 : '');
+}
+
+function onT2ProviderChange() {
+  const v = document.getElementById('t2-provider').value;
+  document.getElementById('t2-key-wrap').style.display = v === 'same' ? 'none' : 'flex';
+  updateModelLabels();
 }
 
 async function saveLlmConfig() {
   const provider = document.getElementById('llm-provider').value;
   const llmKey = document.getElementById('llm-api-key').value.trim();
+  const t2sel = document.getElementById('t2-provider').value;
+  const t2Provider = t2sel === 'same' ? undefined : t2sel;
+  const t2Key = t2Provider ? document.getElementById('t2-api-key').value.trim() : undefined;
   const statusEl = document.getElementById('llm-save-status');
   try {
     await fetch(`${BASE}/dashboard/llm-config`, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ provider, api_key: llmKey || undefined })
+      body: JSON.stringify({ provider, api_key: llmKey || undefined, t2_provider: t2Provider, t2_api_key: t2Key || undefined })
     });
     statusEl.style.color = '#4ade80';
     statusEl.textContent = 'Saved';
-    if (llmKey) { document.getElementById('llm-api-key').value = ''; document.getElementById('llm-api-key').placeholder = 'API key configured (hidden)'; }
+    if (llmKey) { document.getElementById('llm-api-key').value = ''; document.getElementById('llm-api-key').placeholder = 'Key configured (hidden)'; }
+    if (t2Key) { document.getElementById('t2-api-key').value = ''; document.getElementById('t2-api-key').placeholder = 'Key configured (hidden)'; }
+    updateModelLabels();
     setTimeout(() => { statusEl.textContent = ''; }, 2000);
   } catch (e) {
     statusEl.style.color = '#f87171';
