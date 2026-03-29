@@ -1,12 +1,39 @@
 # @essentianlabs/radar-lite
 
-Local risk assessment for AI agents. **Vela Lite** runs on your machine — no data ever leaves it.
+Local risk assessment for AI agents. Vela Lite structures reasoning about agent actions before they execute.
 
 ## Advisory notice
 
-RADAR produces risk intelligence, not safety assurance. Vela Lite's verdict is an assessment based on the action description you provide. It does not verify what your agent actually executes. A PROCEED verdict does not transfer liability — the developer remains responsible for the action taken and the accuracy of the description submitted.
+RADAR produces risk intelligence, not safety assurance. It structures reasoning — it does not validate decisions.
+
+- RADAR assesses the **action description** supplied by the developer or agent. It does not verify, monitor, or control the real-world action that is actually executed.
+- A **PROCEED** verdict means "not held by this assessment." It is not authorization, approval, certification, legal advice, or safety validation.
+- RADAR can produce a PROCEED verdict for actions that later prove harmful, incorrect, unethical, or non-compliant. The assessment reflects what was described, not what occurs.
+- **Liability remains with the developer, operator, and end user.** RADAR does not transfer, reduce, or share liability for actions taken.
+- If an external LLM provider is configured, action text leaves the local machine and is sent to that provider under your own account and API terms.
 
 This is a beta release. Not recommended for enterprise or production use without independent legal and compliance review. By installing this package you agree to the [Beta Terms of Use](https://radar.essentianlabs.com/terms.html).
+
+## Intended use boundaries
+
+RADAR Lite is designed as a reasoning layer for AI agent developers — a checkpoint that surfaces risk signals before an action executes. It should not be relied on as the sole control for high-stakes domains including:
+
+- Medical decisions or patient care
+- Legal advice or legal document generation
+- Employment, hiring, or termination decisions
+- Regulated financial advice or transactions
+- Safety-critical systems or irreversible physical-world actions
+
+In these domains, RADAR should be one input among several — combined with independent human review, domain-specific compliance controls, and professional oversight.
+
+## Runtime meaning of the verdict
+
+| Verdict | Meaning | What it is not |
+|---------|---------|---------------|
+| `PROCEED` | Not held by the current assessment path | Not "safe", not "approved", not "compliant" |
+| `HOLD` | Requires review or intervention according to current config/policy | Not a block — your code decides whether to enforce it |
+
+Neither verdict is a substitute for human accountability. The developer's code decides what to do with the verdict. RADAR advises — it does not enforce.
 
 ## Install
 
@@ -19,7 +46,6 @@ npm install @essentianlabs/radar-lite
 ```javascript
 import radar from '@essentianlabs/radar-lite';
 
-// Configure — LLM key optional (enables Vela Lite assessment)
 radar.configure({
   llmProvider: 'anthropic',                  // T1 scorer
   llmKey: process.env.ANTHROPIC_API_KEY,     // optional — without it, rules engine only
@@ -35,7 +61,6 @@ radar.configure({
   }
 });
 
-// Assess an action — Vela Lite runs on every assessment
 const result = await radar.assess(
   'Send price increase email to 50,000 users',
   'email_bulk'
@@ -238,13 +263,44 @@ The return object includes `radarEnabled: false` when assessment is bypassed.
 
 Each activity type has a slider from `0.0` (permissive) to `1.0` (conservative):
 
-- **0.0–0.3 permissive**: T2 triggers at score 7
-- **0.4–0.6 balanced**: T2 triggers at score 5
-- **0.7–1.0 conservative**: T2 triggers at score 3
+- **0.0-0.3 permissive**: T2 triggers at score 7
+- **0.4-0.6 balanced**: T2 triggers at score 5
+- **0.7-1.0 conservative**: T2 triggers at score 3
 
 Slider position is resolved in order: SQLite `activity_config` → JS `config.activities` → default 0.5.
 
-**Note:** Vela Lite uses slider-interpolated thresholds that adapt to developer risk appetite. The full RADAR API (paid tier) uses fixed integer tier boundaries (T1=1–4, T2=5–9, T3=10–16, T4=17–25). This is an intentional design difference — Lite gives developers control over sensitivity; the full API enforces standardised tier classification.
+**Note:** Vela Lite uses slider-interpolated thresholds that adapt to developer risk appetite. The full RADAR API (paid tier) uses fixed integer tier boundaries (T1=1-4, T2=5-9, T3=10-16, T4=17-25). This is an intentional design difference — Lite gives developers control over sensitivity; the full API enforces standardised tier classification.
+
+## Privacy and data flow
+
+RADAR Lite is designed for local operation. No data is sent to EssentianLabs servers.
+
+- **Rules engine only** (no LLM key configured): All scoring runs locally. No network calls. No action text leaves your machine.
+- **With LLM key configured**: The action description, activity type, risk score, and trigger reason are sent to the configured LLM provider (Anthropic, OpenAI, or Google) under your own API account and terms. This is necessary for Vela Lite to generate verdicts and strategy options.
+- **With dual-provider configured**: Action context is sent to both the T1 provider and the T2 provider (if different).
+- **SQLite storage**: The local register stores SHA256 hashes of action text, never the text itself. No PII is written to the database.
+- **No telemetry**: The package does not phone home, collect usage data, or communicate with EssentianLabs infrastructure.
+
+If you require fully offline operation with no external network calls, do not configure an LLM key. The rules engine will provide deterministic scoring without Vela verdicts.
+
+## Determinism and gameability
+
+The T1 rules engine is intentionally transparent and deterministic. The scoring weights, signal patterns, and threshold calculations are visible in the source code. Given the same input, slider position, and version, the rules engine will always produce the same score.
+
+This means the rules engine is gameable. An agent or developer who reads the source code can craft action descriptions that avoid trigger patterns or manipulate scores. **The rules engine should not be treated as a security mechanism or anti-abuse control.**
+
+For higher-stakes use, combine the rules engine with:
+- LLM-based assessment (Vela Lite or Vela Essentian) which is harder to game
+- Independent human review
+- Additional domain-specific controls
+
+## Versioning and decision-impacting changes
+
+This package follows semantic versioning for API and package behaviour.
+
+**Decision-impacting changes** — changes to scoring thresholds, risk weights, activity type mappings, signal patterns, prompt wording, or verdict semantics — are flagged explicitly in the changelog. These changes can cause the same input to produce a different verdict across versions.
+
+If your application depends on stable, reproducible verdicts, pin to a specific version. Review the changelog for entries marked as decision-impacting before upgrading.
 
 ## Dashboard
 
@@ -261,12 +317,6 @@ npx radar-lite stats      # tier counts, hold rate
 npx radar-lite history    # last 10 assessments
 npx radar-lite version    # package version
 ```
-
-## Privacy
-
-- **No server calls** — everything runs locally
-- **No telemetry** — zero phoning home
-- **Hash-only storage** — SQLite stores SHA256 action hashes, never action text
 
 ## LLM providers
 
