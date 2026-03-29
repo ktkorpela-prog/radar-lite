@@ -136,8 +136,18 @@
   .tier-2 { background: #1a2a4a; color: #ffffff; }
   .tier-3 { background: #4a3a1a; color: #ffffff; }
   .tier-4 { background: #4a1a1a; color: #ffffff; }
-  .verdict-hold { color: #f87171; font-weight: 600; }
+  .verdict-hold { color: #fbbf24; font-weight: 600; }
   .verdict-proceed { color: #4ade80; font-weight: 600; }
+  .verdict-deny { color: #f87171; font-weight: 600; }
+  .call-row.deny-row { border-left: 3px solid #f87171; }
+  .call-row.deny-overridden { border-left: 3px solid #fbbf24; }
+  .deny-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; background: #4a1a1a; color: #f87171; }
+  .deny-override-btn { padding: 6px 16px; border: 1px solid #f87171; background: transparent; color: #f87171; font-size: 12px; font-weight: 600; border-radius: 4px; cursor: pointer; }
+  .deny-override-btn:hover { background: #f8717118; }
+  .deny-override-form { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .deny-override-form input, .deny-override-form textarea { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; padding: 8px 10px; color: #f0ede8; font-size: 13px; font-family: inherit; }
+  .deny-override-form textarea { min-height: 60px; resize: vertical; }
+  .deny-override-form input:focus, .deny-override-form textarea:focus { outline: none; border-color: #f87171; }
   .upgrade-msg { text-align: center; padding: 40px; color: #c0bdb8; font-size: 14px; }
   .upgrade-msg a { color: #c4943a; }
   .upgrade-msg .docs-hint { display: block; margin-top: 10px; font-size: 13px; color: #909090; }
@@ -375,16 +385,6 @@
   </div>
 
   <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:500;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
-  <div id="update-banner" style="display:none;background:#161616;border:1px solid #2a2a2a;padding:14px 20px;margin-bottom:16px;border-radius:6px;font-size:13px">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start">
-      <div>
-        <div style="font-weight:600;color:#f0ede8;margin-bottom:4px" id="update-title"></div>
-        <div style="color:#909090;font-size:12px" id="update-advisory"></div>
-        <div style="color:#666;font-size:11px;margin-top:6px" id="update-revert"></div>
-      </div>
-      <button onclick="document.getElementById('update-banner').style.display='none'" style="background:none;border:none;color:#555;font-size:16px;cursor:pointer;padding:0 4px">&times;</button>
-    </div>
-  </div>
 
   <!-- Overview -->
   <div class="tab-panel active" id="panel-overview">
@@ -459,19 +459,6 @@
         <span class="setting-label">RADAR assessment is <strong id="radar-status-text">enabled</strong></span>
         <label class="hr-toggle">
           <input type="checkbox" id="radar-enabled-toggle" checked onchange="toggleRadarEnabled(this.checked)">
-          <span class="hr-switch"></span>
-        </label>
-      </div>
-    </div>
-    <div class="settings-section">
-      <h3>Update Notifications</h3>
-      <div class="setting-row">
-        <div>
-          <span class="setting-label">Check for new versions on dashboard load</span>
-          <div style="font-size:11px;color:#555;margin-top:2px">Disabled by default. When enabled, checks the npm registry once on dashboard load. No data is sent beyond the version check.</div>
-        </div>
-        <label class="hr-toggle">
-          <input type="checkbox" id="update-check-toggle" onchange="toggleUpdateCheck(this.checked)">
           <span class="hr-switch"></span>
         </label>
       </div>
@@ -569,7 +556,6 @@ function enterDashboard() {
     loadStats();
     loadSettings();
     checkRadarEnabled();
-    checkForUpdates();
   }, 400);
 }
 
@@ -598,28 +584,6 @@ async function toggleRadarEnabled(enabled) {
     });
     checkRadarEnabled();
   } catch (e) { console.error('Toggle error', e); }
-}
-
-async function checkForUpdates() {
-  try {
-    const r = await fetch(`${BASE}/dashboard/update-check`);
-    const d = await r.json();
-    if (!d.check_enabled || !d.update_available) return;
-
-    const banner = document.getElementById('update-banner');
-    const title = document.getElementById('update-title');
-    const advisory = document.getElementById('update-advisory');
-    const revert = document.getElementById('update-revert');
-
-    title.textContent = `v${d.latest_version} available — ${d.current_classification || 'Maintenance update'}`;
-    if (d.current_advisory) {
-      advisory.textContent = d.current_advisory;
-    }
-    if (d.revert) {
-      revert.innerHTML = `Quick revert: <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">${esc(d.revert.quick || 'npm install @essentianlabs/radar-lite@' + d.current_version)}</code> · Safe revert: run <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">npx radar-lite backup</code> before upgrading`;
-    }
-    banner.style.display = 'block';
-  } catch (e) {}
 }
 
 async function checkPasswordRequired() {
@@ -860,7 +824,7 @@ function populateAgentDropdowns() {
     for (const a of agentsList) {
       const name = a.agent_id || 'Unidentified';
       const count = a.count || derivedCounts[a.agent_id] || derivedCounts[name] || 0;
-      sel.innerHTML += `<option value="${esc(a.agent_id || '')}">${esc(name)} (${count} calls)</option>`;
+      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${count} calls)</option>`;
     }
   });
 }
@@ -1191,7 +1155,7 @@ function renderBoxPlot(perDayByAgent) {
         .on('click', () => onAgentFilter(a.agentId || ''))
         .on('mouseenter', function(event) {
           d3.select(this).attr('r', r + 2).attr('fill', a.color).attr('fill-opacity', 1);
-          tip.innerHTML = `<strong style="color:${a.color}">${esc(a.agentId || 'Unidentified')}</strong><br>${val} calls on ${esc(dayLabels[di])}<br><span style="color:#909090">Total: ${a.total} (30d) · Avg: ${a.avg.toFixed(1)}/day · Med: ${a.median}</span>`;
+          tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}<br><span style="color:#909090">Total: ${a.total} (30d) · Avg: ${a.avg.toFixed(1)}/day · Med: ${a.median}</span>`;
           tip.style.display = 'block';
           const cr = document.getElementById('boxplot-container').getBoundingClientRect();
           tip.style.left = (event.clientX - cr.left + 12) + 'px';
@@ -1216,10 +1180,10 @@ function renderRecentTable(calls) {
   let html = '<table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
   for (const c of calls) {
     const time = new Date(c.created_at).toLocaleString();
-    const verdict = c.verdict ? `<span class="verdict-${esc(c.verdict.toLowerCase())}">${esc(c.verdict.toUpperCase())}</span>` : '—';
-    const trigger = c.trigger_reason ? esc(truncate(c.trigger_reason, 40)) : '—';
+    const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
+    const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
     const agent = c.agent_id ? `<span class="agent-link" onclick="onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
-    html += `<tr><td class="mono" style="font-size:12px">${esc(time)}</td><td>${agent}</td><td>${esc(c.activity_type)}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+    html += `<tr><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById('recent-table').innerHTML = html;
@@ -1236,16 +1200,18 @@ async function loadCalls() {
     for (let i = 0; i < d.calls.length; i++) {
       const c = d.calls[i];
       const time = new Date(c.created_at).toLocaleString();
-      const verdict = c.verdict ? `<span class="verdict-${esc(c.verdict.toLowerCase())}">${esc(c.verdict.toUpperCase())}</span>` : '—';
-      const models = esc((c.models_consulted || []).join(', ')) || '—';
+      const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
+      const models = (c.models_consulted || []).join(', ') || '—';
       const vela = c.vela_consulted ? `<span class="vela-badge">Vela</span>` : '—';
       const outcome = renderOutcomeCell(c, i);
-      const trigger = c.trigger_reason ? esc(truncate(c.trigger_reason, 40)) : '—';
-      const action = c.tldr?.action ? esc(truncate(c.tldr.action, 50)) : esc(truncate(c.activity_type, 50));
+      const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
+      const action = c.tldr?.action ? truncate(c.tldr.action, 50) : truncate(c.activity_type, 50);
       const agent = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
-      const isRowHold = (c.verdict || '').toString().trim().toUpperCase() === 'HOLD';
-      const holdCls = isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : '';
-      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${esc(time)}</td><td>${agent}</td><td>${esc(c.activity_type)}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(c.tldr?.action || c.activity_type || '')}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      const vUpper = (c.verdict || '').toString().trim().toUpperCase();
+      const isRowHold = vUpper === 'HOLD';
+      const isRowDeny = vUpper === 'DENY';
+      const holdCls = isRowDeny ? (c.deny_overridden ? ' deny-overridden' : ' deny-row') : (isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : '');
+      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
       html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
     }
     html += '</tbody></table></div>';
@@ -1422,7 +1388,7 @@ function renderSankey(data) {
 
 // ─── Helpers ───
 function truncate(str, len) { if (!str) return '—'; return str.length > len ? str.slice(0, len) + '…' : str; }
-function esc(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function esc(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function toggleExpand(i) {
   const row = document.getElementById('expand-' + i);
@@ -1438,7 +1404,9 @@ function renderExpandedRow(c, idx) {
   const models = (c.models_consulted || []).join(', ') || '—';
   const velaTag = c.vela_consulted ? '<span class="vela-badge">Vela consulted</span>' : '<span style="color:#555">Vela not consulted</span>';
   const agentTag = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '<span style="color:#555">No agent</span>';
-  const isHold = (c.verdict || '').toString().trim().toUpperCase() === 'HOLD';
+  const verdictUp = (c.verdict || '').toString().trim().toUpperCase();
+  const isHold = verdictUp === 'HOLD';
+  const isDeny = verdictUp === 'DENY';
 
   // Vela's four options (HOLD rows)
   let optionsHtml = '';
@@ -1477,9 +1445,36 @@ function renderExpandedRow(c, idx) {
     }
   }
 
-  // Generic feedback (non-HOLD rows)
+  // DENY row content
+  let denyHtml = '';
+  if (isDeny) {
+    const reason = c.deny_reason || c.trigger_reason || 'Policy violation';
+    if (c.deny_overridden) {
+      denyHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a">
+        <div class="expand-label">Deny override</div>
+        <div style="color:#fbbf24;font-size:13px">Overridden by ${esc(c.deny_override_by || 'unknown')}${c.deny_override_reason ? ': ' + esc(c.deny_override_reason) : ''}</div>
+      </div>`;
+    } else {
+      denyHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a">
+        <div class="expand-label">Denied</div>
+        <div style="color:#f87171;font-size:13px;margin-bottom:8px"><span class="deny-badge">DENY</span> &nbsp;${esc(reason)}</div>
+        <div style="font-size:11px;color:#909090;margin-bottom:10px">Call ID: <code>${esc(c.call_id)}</code> &mdash; Override requires <code>override_deny</code> with documented reason.</div>
+        <button class="deny-override-btn" onclick="event.stopPropagation();showDenyOverride(${idx},'${esc(c.call_id)}')" id="deny-btn-${idx}">Override DENY</button>
+        <div id="deny-form-${idx}" style="display:none" class="deny-override-form">
+          <input type="text" placeholder="Your name (decided by)" id="deny-by-${idx}">
+          <textarea placeholder="Reason for override — this will be recorded" id="deny-reason-${idx}"></textarea>
+          <div style="display:flex;gap:8px">
+            <button class="deny-override-btn" onclick="event.stopPropagation();submitDenyOverride(${idx},'${esc(c.call_id)}')">Confirm override</button>
+            <button style="background:none;border:1px solid #2a2a2a;color:#909090;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px" onclick="document.getElementById('deny-form-${idx}').style.display='none';document.getElementById('deny-btn-${idx}').style.display=''">Cancel</button>
+          </div>
+        </div>
+      </div>`;
+    }
+  }
+
+  // Generic feedback (non-HOLD, non-DENY rows)
   let feedbackHtml = '';
-  if (!isHold && !c.feedback) {
+  if (!isHold && !isDeny && !c.feedback) {
     feedbackHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a">
       <span style="color:#8a8a8a;font-size:11px;margin-right:8px">Rate outcome:</span>
       <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'followed')">Followed</button>
@@ -1497,6 +1492,7 @@ function renderExpandedRow(c, idx) {
     <div><div class="expand-label">Assumptions</div><div class="expand-value">${assumptions}</div></div>
     ${optionsHtml ? `<div class="full-width">${optionsHtml}</div>` : ''}
     ${holdActionHtml ? `<div class="full-width">${holdActionHtml}</div>` : ''}
+    ${denyHtml ? `<div class="full-width">${denyHtml}</div>` : ''}
     ${feedbackHtml ? `<div class="full-width">${feedbackHtml}</div>` : ''}
   </div>`;
 }
@@ -1556,13 +1552,37 @@ async function submitHoldAction(idx, callId, action) {
       callsData[idx].action_timestamp = new Date().toISOString();
       const ts = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
       const el = document.getElementById('hold-action-' + idx);
-      if (el) el.innerHTML = `<div class="hold-recorded">&#10003; ${esc(action.charAt(0).toUpperCase() + action.slice(1))} — ${esc(ts)}</div>`;
+      if (el) el.innerHTML = `<div class="hold-recorded">&#10003; ${action.charAt(0).toUpperCase() + action.slice(1)} — ${ts}</div>`;
       // Update row border
       const rows = document.querySelectorAll('.call-row');
       let rowIdx = 0;
       rows.forEach(r => { if (r.dataset?.idx == idx || rowIdx === idx) { r.classList.remove('hold-row'); r.classList.add(action === 'accept' ? 'hold-actioned' : 'hold-halted'); } rowIdx++; });
     }
   } catch (e) { console.error('Hold action error', e); }
+}
+
+function showDenyOverride(idx, callId) {
+  document.getElementById('deny-btn-' + idx).style.display = 'none';
+  document.getElementById('deny-form-' + idx).style.display = 'flex';
+}
+
+async function submitDenyOverride(idx, callId) {
+  const decidedBy = document.getElementById('deny-by-' + idx).value.trim();
+  const reason = document.getElementById('deny-reason-' + idx).value.trim();
+  if (!decidedBy || !reason) { alert('Both name and reason are required to override a DENY.'); return; }
+  try {
+    const r = await fetch(`${BASE}/radar/feedback`, {
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ call_id: callId, override_deny: true, decided_by: decidedBy, override_reason: reason })
+    });
+    const d = await r.json();
+    if (d.success) {
+      callsData[idx].deny_overridden = true;
+      callsData[idx].deny_override_by = decidedBy;
+      callsData[idx].deny_override_reason = reason;
+      loadCalls();
+    }
+  } catch (e) { console.error('Deny override error', e); }
 }
 
 async function submitFeedback(callId, idx, outcome) {
@@ -1849,26 +1869,6 @@ function copySnippet(agentId) {
 function loadSettings() {
   loadLlmConfig();
   loadActivityConfig();
-  loadUpdateCheckToggle();
-}
-
-async function loadUpdateCheckToggle() {
-  try {
-    const r = await fetch(`${BASE}/dashboard/update-check-enabled`);
-    const d = await r.json();
-    const toggle = document.getElementById('update-check-toggle');
-    if (toggle) toggle.checked = d.enabled;
-  } catch (e) {}
-}
-
-async function toggleUpdateCheck(enabled) {
-  try {
-    await fetch(`${BASE}/dashboard/update-check-enabled`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled })
-    });
-    if (enabled) checkForUpdates();
-  } catch (e) { console.error('Update check toggle error', e); }
 }
 
 const MODEL_MAP = {
@@ -2086,7 +2086,7 @@ async function toggleHoldHistory(activity) {
     const r = await fetch(`${BASE}/dashboard/activity-config/${activity}/history`, { headers: authHeaders() });
     const d = await r.json();
     if (d.history && d.history.length > 0) {
-      list.innerHTML = d.history.map(h => `${esc(h.from || '?')} &rarr; ${esc(h.to || '?')} &mdash; ${esc(new Date(h.timestamp).toLocaleString())}`).join('<br>');
+      list.innerHTML = d.history.map(h => `${h.from || '?'} &rarr; ${h.to || '?'} &mdash; ${new Date(h.timestamp).toLocaleString()}`).join('<br>');
     } else {
       list.innerHTML = 'No changes recorded';
     }
