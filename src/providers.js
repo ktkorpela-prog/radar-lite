@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 export const DEFAULT_PROVIDER = 'anthropic';
 
 const MODELS = {
-  anthropic: { fast: 'claude-haiku-4-5-20251001', reasoning: 'claude-sonnet-4-6-20250514' },
+  anthropic: { fast: 'claude-haiku-4-5-20251001', reasoning: 'claude-sonnet-4-6' },
   openai:    { fast: 'gpt-4o-mini',               reasoning: 'gpt-4o' },
   google:    { fast: 'gemini-2.0-flash',           reasoning: 'gemini-2.0-pro' }
 };
