@@ -616,7 +616,7 @@ async function checkForUpdates() {
       advisory.textContent = d.current_advisory;
     }
     if (d.revert) {
-      revert.innerHTML = `Quick revert: <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">${d.revert.quick || 'npm install @essentianlabs/radar-lite@' + d.current_version}</code> · Safe revert: run <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">npx radar-lite backup</code> before upgrading`;
+      revert.innerHTML = `Quick revert: <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">${esc(d.revert.quick || 'npm install @essentianlabs/radar-lite@' + d.current_version)}</code> · Safe revert: run <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">npx radar-lite backup</code> before upgrading`;
     }
     banner.style.display = 'block';
   } catch (e) {}
@@ -860,7 +860,7 @@ function populateAgentDropdowns() {
     for (const a of agentsList) {
       const name = a.agent_id || 'Unidentified';
       const count = a.count || derivedCounts[a.agent_id] || derivedCounts[name] || 0;
-      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${count} calls)</option>`;
+      sel.innerHTML += `<option value="${esc(a.agent_id || '')}">${esc(name)} (${count} calls)</option>`;
     }
   });
 }
@@ -1191,7 +1191,7 @@ function renderBoxPlot(perDayByAgent) {
         .on('click', () => onAgentFilter(a.agentId || ''))
         .on('mouseenter', function(event) {
           d3.select(this).attr('r', r + 2).attr('fill', a.color).attr('fill-opacity', 1);
-          tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}<br><span style="color:#909090">Total: ${a.total} (30d) · Avg: ${a.avg.toFixed(1)}/day · Med: ${a.median}</span>`;
+          tip.innerHTML = `<strong style="color:${a.color}">${esc(a.agentId || 'Unidentified')}</strong><br>${val} calls on ${esc(dayLabels[di])}<br><span style="color:#909090">Total: ${a.total} (30d) · Avg: ${a.avg.toFixed(1)}/day · Med: ${a.median}</span>`;
           tip.style.display = 'block';
           const cr = document.getElementById('boxplot-container').getBoundingClientRect();
           tip.style.left = (event.clientX - cr.left + 12) + 'px';
@@ -1216,10 +1216,10 @@ function renderRecentTable(calls) {
   let html = '<table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
   for (const c of calls) {
     const time = new Date(c.created_at).toLocaleString();
-    const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
-    const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
+    const verdict = c.verdict ? `<span class="verdict-${esc(c.verdict.toLowerCase())}">${esc(c.verdict.toUpperCase())}</span>` : '—';
+    const trigger = c.trigger_reason ? esc(truncate(c.trigger_reason, 40)) : '—';
     const agent = c.agent_id ? `<span class="agent-link" onclick="onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
-    html += `<tr><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+    html += `<tr><td class="mono" style="font-size:12px">${esc(time)}</td><td>${agent}</td><td>${esc(c.activity_type)}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById('recent-table').innerHTML = html;
@@ -1236,16 +1236,16 @@ async function loadCalls() {
     for (let i = 0; i < d.calls.length; i++) {
       const c = d.calls[i];
       const time = new Date(c.created_at).toLocaleString();
-      const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
-      const models = (c.models_consulted || []).join(', ') || '—';
+      const verdict = c.verdict ? `<span class="verdict-${esc(c.verdict.toLowerCase())}">${esc(c.verdict.toUpperCase())}</span>` : '—';
+      const models = esc((c.models_consulted || []).join(', ')) || '—';
       const vela = c.vela_consulted ? `<span class="vela-badge">Vela</span>` : '—';
       const outcome = renderOutcomeCell(c, i);
-      const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
-      const action = c.tldr?.action ? truncate(c.tldr.action, 50) : truncate(c.activity_type, 50);
+      const trigger = c.trigger_reason ? esc(truncate(c.trigger_reason, 40)) : '—';
+      const action = c.tldr?.action ? esc(truncate(c.tldr.action, 50)) : esc(truncate(c.activity_type, 50));
       const agent = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
       const isRowHold = (c.verdict || '').toString().trim().toUpperCase() === 'HOLD';
       const holdCls = isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : '';
-      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${esc(time)}</td><td>${agent}</td><td>${esc(c.activity_type)}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(c.tldr?.action || c.activity_type || '')}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
       html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
     }
     html += '</tbody></table></div>';
@@ -1422,7 +1422,7 @@ function renderSankey(data) {
 
 // ─── Helpers ───
 function truncate(str, len) { if (!str) return '—'; return str.length > len ? str.slice(0, len) + '…' : str; }
-function esc(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function toggleExpand(i) {
   const row = document.getElementById('expand-' + i);
@@ -1556,7 +1556,7 @@ async function submitHoldAction(idx, callId, action) {
       callsData[idx].action_timestamp = new Date().toISOString();
       const ts = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
       const el = document.getElementById('hold-action-' + idx);
-      if (el) el.innerHTML = `<div class="hold-recorded">&#10003; ${action.charAt(0).toUpperCase() + action.slice(1)} — ${ts}</div>`;
+      if (el) el.innerHTML = `<div class="hold-recorded">&#10003; ${esc(action.charAt(0).toUpperCase() + action.slice(1))} — ${esc(ts)}</div>`;
       // Update row border
       const rows = document.querySelectorAll('.call-row');
       let rowIdx = 0;
@@ -2086,7 +2086,7 @@ async function toggleHoldHistory(activity) {
     const r = await fetch(`${BASE}/dashboard/activity-config/${activity}/history`, { headers: authHeaders() });
     const d = await r.json();
     if (d.history && d.history.length > 0) {
-      list.innerHTML = d.history.map(h => `${h.from || '?'} &rarr; ${h.to || '?'} &mdash; ${new Date(h.timestamp).toLocaleString()}`).join('<br>');
+      list.innerHTML = d.history.map(h => `${esc(h.from || '?')} &rarr; ${esc(h.to || '?')} &mdash; ${esc(new Date(h.timestamp).toLocaleString())}`).join('<br>');
     } else {
       list.innerHTML = 'No changes recorded';
     }

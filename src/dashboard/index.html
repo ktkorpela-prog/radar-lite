@@ -312,6 +312,7 @@
 
 <script>
 const API = '';
+function esc(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 async function load() {
   try {
@@ -367,15 +368,15 @@ function renderHistory(records) {
     const tierClass = r.tier === 1 ? 't1' : 't2';
     const verdictClass = r.verdict === 'HOLD' ? 'verdict-hold' : 'verdict-proceed';
     const strategyHtml = r.chosen_strategy
-      ? `<span class="strategy-tag">${r.chosen_strategy}</span>`
+      ? `<span class="strategy-tag">${esc(r.chosen_strategy)}</span>`
       : '—';
 
     tr.innerHTML = `
-      <td>${time}</td>
-      <td>${r.activity_type}</td>
+      <td>${esc(time)}</td>
+      <td>${esc(r.activity_type)}</td>
       <td><span class="badge ${tierClass}">T${r.tier}</span></td>
       <td>${r.risk_score}</td>
-      <td><span class="${verdictClass}">${r.verdict}</span></td>
+      <td><span class="${verdictClass}">${esc(r.verdict)}</span></td>
       <td>${strategyHtml}</td>
     `;
 
@@ -384,10 +385,10 @@ function renderHistory(records) {
     expandedTr.style.display = 'none';
     expandedTr.innerHTML = `
       <td colspan="6">
-        <div class="expanded-content">Call ID: ${r.id}
-Action hash: ${r.action_hash.substring(0, 16)}...
-Tier: T${r.tier}  Score: ${r.risk_score}  Verdict: ${r.verdict}
-${r.chosen_strategy ? `Strategy: ${r.chosen_strategy} (decided by: ${r.decided_by || 'unknown'})` : 'No strategy recorded'}
+        <div class="expanded-content">Call ID: ${esc(r.id)}
+Action hash: ${esc(r.action_hash ? r.action_hash.substring(0, 16) : '')}...
+Tier: T${r.tier}  Score: ${r.risk_score}  Verdict: ${esc(r.verdict)}
+${r.chosen_strategy ? `Strategy: ${esc(r.chosen_strategy)} (decided by: ${esc(r.decided_by || 'unknown')})` : 'No strategy recorded'}
 ${r.vela_overridden ? '⚠ Vela recommendation was overridden' : ''}</div>
       </td>
     `;
