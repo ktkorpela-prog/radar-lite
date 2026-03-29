@@ -30,14 +30,36 @@ RADAR Lite is designed as a reasoning layer for AI agent developers — a checkp
 
 In these domains, RADAR should be one input among several — combined with independent human review, domain-specific compliance controls, and professional oversight.
 
-## Runtime meaning of the verdict
+## Runtime meaning of the verdict (v0.3)
 
-| Verdict | Meaning | What it is not |
-|---------|---------|---------------|
-| `PROCEED` | Not held by the current assessment path | Not "safe", not "approved", not "compliant" |
-| `HOLD` | Requires review or intervention according to current config/policy | Not a block — your code decides whether to enforce it |
+| Status | When | Meaning | `proceed` | `reviewRequired` |
+|--------|------|---------|-----------|-------------------|
+| `PROCEED` | T1 low risk | Below review threshold. Go ahead. | `true` | `false` |
+| `HOLD` | T2 elevated risk | Requires explicit human/system review before continuing | `false` | `true` |
+| `DENY` | Policy or extreme risk | Blocked by configuration. Should not continue through normal execution. | `false` | `false` |
 
-Neither verdict is a substitute for human accountability. The developer's code decides what to do with the verdict. RADAR advises — it does not enforce.
+**HOLD** includes `holdAction`, `notifyUrl`, `options`, and `recommended`. The developer reviews the options and records a strategy.
+
+**DENY** includes only `reason` and `callId`. No options, no holdAction. Override requires:
+```javascript
+await radar.strategy(callId, 'override_deny', {
+  reason: 'Approved by CTO after compliance review',  // required
+  decidedBy: 'admin@company.com'                       // required
+});
+```
+
+DENY triggers (deterministic — no LLM):
+- Trigger policy set to `'deny'`: `await radar.savePolicy('*drop database*', 'deny')`
+- Score 20+ with irreversibility signal (rules engine)
+
+Neither verdict is a substitute for human accountability. RADAR advises — it does not enforce.
+
+### Backward compatibility
+
+`result.verdict` and `result.proceed` still work as before:
+- `result.verdict` mirrors `result.status` (`'PROCEED'`, `'HOLD'`, or `'DENY'`)
+- `result.proceed` is `true` for PROCEED, `false` for HOLD and DENY
+- Existing code using `if (!result.proceed)` continues to work unchanged
 
 ## Prerequisites
 
@@ -166,25 +188,28 @@ Pattern-level acceptance (marking a reviewed decision as applicable to similar f
 
 ```javascript
 {
-  proceed: false,
-  tier: 1 | 2,                    // 0 for policy short-circuits
-  verdict: "PROCEED" | "HOLD",
-  riskScore: 1-25,                // 0 for policy short-circuits
+  status: "PROCEED" | "HOLD" | "DENY",  // primary verdict (v0.3)
+  proceed: false,                // derived: true for PROCEED, false for HOLD/DENY
+  verdict: "PROCEED" | "HOLD" | "DENY", // alias for status (backward compat)
+  reviewRequired: true | false,  // true only on HOLD
+  tier: 1 | 2,                  // null for policy/DENY short-circuits
+  riskScore: 1-25,              // null for policy short-circuits
   triggerReason: "string",
   activityType: "email_bulk",
   callId: "ra_xxxxxxxxxxxx",
-  vela: "formatted string",       // null for policy short-circuits
-  options: null | { avoid, mitigate, transfer, accept },
-  recommended: null | "mitigate",
-  promptMode: "oneliner" | "tldr", // null for policy short-circuits
-  t2Attempted: true | false,       // true when LLM call succeeded (any tier)
+  vela: "formatted string",     // null for DENY and policy short-circuits
+  options: null | { avoid, mitigate, transfer, accept }, // HOLD only
+  recommended: null | "mitigate",  // HOLD only
+  promptMode: "oneliner" | "tldr", // null for policy/DENY
+  holdAction: "halt",            // HOLD only — configured response
+  notifyUrl: null,               // HOLD only, when holdAction is 'notify'
+  reason: "string",             // DENY only — why it was denied
+  t2Attempted: true | false,
   wouldEscalate: true | false,
   escalateTier: null | 3 | 4,
   parseFailed: true | false,
-  policyDecision: "assess" | "human_required" | "no_assessment",
-  radarEnabled: true | false,    // false when RADAR_ENABLED=false
-  holdAction: "halt",            // only on HOLD — configured response
-  notifyUrl: null                // only when holdAction is 'notify'
+  policyDecision: "assess" | "human_required" | "no_assessment" | "deny",
+  radarEnabled: true | false
 }
 ```
 
