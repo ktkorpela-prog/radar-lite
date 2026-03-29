@@ -59,7 +59,7 @@ async function ensureDb() {
     CREATE TABLE IF NOT EXISTS trigger_policy (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       action_pattern TEXT NOT NULL,
-      policy TEXT NOT NULL CHECK(policy IN ('assess', 'human_required', 'no_assessment')),
+      policy TEXT NOT NULL CHECK(policy IN ('assess', 'human_required', 'no_assessment', 'deny')),
       agent_id TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )

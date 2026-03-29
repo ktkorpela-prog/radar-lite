@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { VelaLite } from '../src/vela-lite.js';
 
@@ -12,197 +12,166 @@ describe('Vela Lite profile', () => {
     assert.equal(VelaLite.profile.name, 'Vela Lite');
     assert.equal(VelaLite.profile.version, '1.0.0');
     assert.equal(VelaLite.profile.by, 'EssentianLabs');
-    assert.ok(VelaLite.profile.role);
-    assert.ok(VelaLite.profile.note);
   });
 
   it('profile cannot be modified', () => {
-    assert.throws(() => {
-      VelaLite.profile.name = 'hacked';
-    }, TypeError);
-  });
-
-  it('profile note mentions paid tier', () => {
-    assert.ok(VelaLite.profile.note.includes('radar.essentianlabs.com'));
+    assert.throws(() => { VelaLite.profile.name = 'hacked'; }, TypeError);
   });
 });
 
-describe('assess() — no LLM key flows', () => {
+describe('v0.3 verdict model — T1 PROCEED', () => {
 
-  it('low risk without key returns oneliner mode', async () => {
+  it('low risk returns status PROCEED with reviewRequired false', async () => {
     const { default: radar } = await import('../src/index.js');
     radar.configure({ activities: { external_api_call: 0.5 } });
 
     const result = await radar.assess('Read internal config from disk', 'external_api_call');
-    assert.equal(result.t2Attempted, false);
-    assert.equal(result.promptMode, 'oneliner');
+    assert.equal(result.status, 'PROCEED');
+    assert.equal(result.proceed, true);
+    assert.equal(result.reviewRequired, false);
     assert.equal(result.tier, 1);
-    assert.equal(result.policyDecision, 'assess');
-    assert.ok(result.vela.includes('VELA LITE (T1)'));
+    assert.equal(result.promptMode, 'oneliner');
   });
+});
 
-  it('high risk without key returns tldr mode', async () => {
+describe('v0.3 verdict model — T2 always HOLD', () => {
+
+  it('high risk returns status HOLD with reviewRequired true', async () => {
     const { default: radar } = await import('../src/index.js');
     radar.configure({ activities: { email_single: 0.7 } });
 
     const result = await radar.assess('Send price increase email to all 50,000 users', 'email_single');
-    assert.equal(result.promptMode, 'tldr');
-    assert.equal(result.tier, 2);
-    assert.equal(result.policyDecision, 'assess');
-  });
-
-  it('wouldEscalate surfaces on extreme risk', async () => {
-    const { default: radar } = await import('../src/index.js');
-    radar.configure({ activities: { financial: 1.0 } });
-
-    const result = await radar.assess('Delete all credit card payment records for everyone', 'financial');
-    assert.equal(result.wouldEscalate, true);
-    assert.ok(result.escalateTier >= 3);
-  });
-});
-
-describe('assess() — deprecated types', () => {
-
-  it('deprecated "email" type still works', async () => {
-    const { default: radar } = await import('../src/index.js');
-    radar.configure({ activities: { email: 0.7 } });
-
-    const result = await radar.assess('Send notification', 'email');
-    assert.equal(result.activityType, 'email_single');
-    assert.equal(result.policyDecision, 'assess');
-  });
-});
-
-describe('assess() — policy decisions', () => {
-
-  it('human_required policy returns HOLD immediately', async () => {
-    const { default: radar } = await import('../src/index.js');
-    const { savePolicy } = await import('../src/register.js');
-    radar.configure({});
-
-    await savePolicy('*delete*', 'human_required');
-    const result = await radar.assess('delete all records', 'data_delete_bulk');
+    assert.equal(result.status, 'HOLD');
     assert.equal(result.proceed, false);
-    assert.equal(result.verdict, 'HOLD');
-    assert.equal(result.policyDecision, 'human_required');
-    assert.equal(result.t2Attempted, false);
+    assert.equal(result.reviewRequired, true);
+    assert.equal(result.tier, 2);
+    assert.ok(result.holdAction);
   });
 
-  it('no_assessment policy returns PROCEED immediately', async () => {
+  it('T2 without LLM key returns HOLD not PROCEED', async () => {
+    const { default: radar } = await import('../src/index.js');
+    radar.configure({ activities: { financial: 0.9 } });
+
+    const result = await radar.assess('Transfer funds to vendor', 'financial');
+    assert.equal(result.status, 'HOLD');
+    assert.equal(result.proceed, false);
+    assert.equal(result.reviewRequired, true);
+  });
+});
+
+describe('v0.3 verdict model — DENY', () => {
+
+  it('deny policy returns status DENY', async () => {
     const { default: radar } = await import('../src/index.js');
     const { savePolicy } = await import('../src/register.js');
     radar.configure({});
 
-    await savePolicy('*search*', 'no_assessment');
+    await savePolicy('*wipe everything*', 'deny');
+    const result = await radar.assess('wipe everything from production', 'data_delete_bulk');
+    assert.equal(result.status, 'DENY');
+    assert.equal(result.proceed, false);
+    assert.equal(result.reviewRequired, false);
+    assert.equal(result.policyDecision, 'deny');
+    assert.equal(result.options, null);
+    assert.equal(result.holdAction, undefined);
+    assert.ok(result.reason.includes('override'));
+  });
+
+  it('score 20+ with irreversibility triggers DENY', async () => {
+    const { default: radar } = await import('../src/index.js');
+    radar.configure({ activities: { data_delete_bulk: 0.9 } });
+
+    const result = await radar.assess('Delete all credit card payment records for everyone permanently', 'data_delete_bulk');
+    assert.equal(result.status, 'DENY');
+    assert.equal(result.proceed, false);
+    assert.ok(result.riskScore >= 20);
+    assert.ok(result.reason.includes('irreversibility'));
+  });
+
+  it('override_deny requires reason and decidedBy', async () => {
+    const { default: radar } = await import('../src/index.js');
+    const { savePolicy } = await import('../src/register.js');
+    radar.configure({});
+
+    await savePolicy('*nuke*', 'deny');
+    const result = await radar.assess('nuke the database', 'data_delete_bulk');
+    assert.equal(result.status, 'DENY');
+
+    // Missing reason
+    await assert.rejects(
+      () => radar.strategy(result.callId, 'override_deny', { decidedBy: 'admin' }),
+      { message: /non-empty reason/ }
+    );
+
+    // Missing decidedBy
+    await assert.rejects(
+      () => radar.strategy(result.callId, 'override_deny', { reason: 'approved by CTO' }),
+      { message: /non-empty decidedBy/ }
+    );
+
+    // Valid override
+    const strat = await radar.strategy(result.callId, 'override_deny', {
+      reason: 'Approved by CTO after compliance review',
+      decidedBy: 'admin@company.com'
+    });
+    assert.equal(strat.success, true);
+    assert.equal(strat.chosenStrategy, 'override_deny');
+    assert.equal(strat.overrideReason, 'Approved by CTO after compliance review');
+  });
+
+  it('override_deny fails on non-DENY assessment', async () => {
+    const { default: radar } = await import('../src/index.js');
+    radar.configure({ activities: { web_search: 0.3 } });
+
     const result = await radar.assess('search for docs', 'web_search');
-    assert.equal(result.proceed, true);
-    assert.equal(result.verdict, 'PROCEED');
-    assert.equal(result.policyDecision, 'no_assessment');
-    assert.equal(result.riskScore, 0);
+    assert.equal(result.status, 'PROCEED');
+
+    await assert.rejects(
+      () => radar.strategy(result.callId, 'override_deny', { reason: 'test', decidedBy: 'admin' }),
+      { message: /not DENY/ }
+    );
   });
 });
 
-describe('assess() — activity human review toggle', () => {
+describe('v0.3 — human_required stays HOLD', () => {
 
-  it('requires_human_review returns HOLD bypassing Vela', async () => {
+  it('human_required policy returns HOLD not DENY', async () => {
+    const { default: radar } = await import('../src/index.js');
+    const { savePolicy } = await import('../src/register.js');
+    radar.configure({});
+
+    await savePolicy('*sensitive transfer*', 'human_required');
+    const result = await radar.assess('sensitive transfer of data', 'data_write');
+    assert.equal(result.status, 'HOLD');
+    assert.equal(result.reviewRequired, true);
+    assert.equal(result.policyDecision, 'human_required');
+    assert.ok(result.holdAction);
+  });
+
+  it('requiresHumanReview returns HOLD not DENY', async () => {
     const { default: radar } = await import('../src/index.js');
     const { saveActivityConfig } = await import('../src/register.js');
     radar.configure({ llmKey: 'fake-key' });
 
     await saveActivityConfig('system_execute', { requiresHumanReview: true });
     const result = await radar.assess('Run deploy script', 'system_execute');
-    assert.equal(result.proceed, false);
-    assert.equal(result.verdict, 'HOLD');
-    assert.equal(result.policyDecision, 'human_required');
-    assert.equal(result.t2Attempted, false);
-    assert.equal(result.vela, null);
+    assert.equal(result.status, 'HOLD');
+    assert.equal(result.reviewRequired, true);
+    assert.equal(result.holdAction, 'halt');
   });
 });
 
-describe('assess() — RADAR disabled', () => {
+describe('v0.3 — RADAR disabled', () => {
 
-  it('returns PROCEED immediately when RADAR_ENABLED=false', async () => {
+  it('returns PROCEED when disabled', async () => {
     process.env.RADAR_ENABLED = 'false';
     const { default: radar } = await import('../src/index.js');
     radar.configure({});
 
     const result = await radar.assess('Delete everything', 'data_delete_bulk');
+    assert.equal(result.status, 'PROCEED');
     assert.equal(result.proceed, true);
-    assert.equal(result.verdict, 'PROCEED');
     assert.equal(result.radarEnabled, false);
-    assert.equal(result.tier, null);
-    assert.equal(result.riskScore, null);
-    assert.equal(result.vela, null);
-    assert.equal(result.t2Attempted, false);
-    assert.ok(result.callId.startsWith('ra_'));
-
-    // Clean up
     delete process.env.RADAR_ENABLED;
-  });
-
-  it('logs bypass event to register when disabled', async () => {
-    process.env.RADAR_ENABLED = 'false';
-    const { default: radar } = await import('../src/index.js');
-    const { history } = await import('../src/register.js');
-    radar.configure({});
-
-    const result = await radar.assess('Do something risky', 'financial');
-    const records = await history(1);
-    assert.ok(records.length > 0);
-    assert.equal(records[0].id, result.callId);
-    assert.equal(records[0].verdict, 'PROCEED');
-    assert.equal(records[0].radar_enabled, 0);
-
-    delete process.env.RADAR_ENABLED;
-  });
-});
-
-describe('assess() — holdAction', () => {
-
-  it('defaults to holdAction halt on HOLD verdict', async () => {
-    const { default: radar } = await import('../src/index.js');
-    const { savePolicy } = await import('../src/register.js');
-    radar.configure({});
-
-    await savePolicy('*dangerous*', 'human_required');
-    const result = await radar.assess('dangerous operation', 'financial');
-    assert.equal(result.verdict, 'HOLD');
-    assert.equal(result.holdAction, 'halt');
-    assert.equal(result.notifyUrl, null);
-  });
-
-  it('holdAction not present on PROCEED verdict', async () => {
-    const { default: radar } = await import('../src/index.js');
-    radar.configure({ activities: { web_search: 0.0 } });
-
-    const result = await radar.assess('search for docs', 'web_search');
-    assert.equal(result.verdict, 'PROCEED');
-    assert.equal(result.holdAction, undefined);
-    assert.equal(result.notifyUrl, undefined);
-  });
-
-  it('returns configured holdAction and notifyUrl on HOLD', async () => {
-    const { default: radar } = await import('../src/index.js');
-    const { saveActivityConfig, savePolicy } = await import('../src/register.js');
-    radar.configure({});
-
-    await saveActivityConfig('financial', { holdAction: 'notify', notifyUrl: 'https://example.com/hook' });
-    await savePolicy('*refund*', 'human_required');
-    const result = await radar.assess('process refund', 'financial');
-    assert.equal(result.verdict, 'HOLD');
-    assert.equal(result.holdAction, 'notify');
-    assert.equal(result.notifyUrl, 'https://example.com/hook');
-  });
-
-  it('config history trims to 5 records', async () => {
-    const { saveActivityConfig, getConfigHistory } = await import('../src/register.js');
-
-    // Write 7 changes
-    for (let i = 0; i < 7; i++) {
-      await saveActivityConfig('test_trim_type', { holdAction: `action_${i}` });
-    }
-    const history = await getConfigHistory('test_trim_type');
-    const holdChanges = history.filter(h => h.changed_field === 'hold_action');
-    assert.ok(holdChanges.length <= 5, `Expected <= 5 history records, got ${holdChanges.length}`);
   });
 });

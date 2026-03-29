@@ -2,7 +2,7 @@ import { classify, getThresholds } from './classifier.js';
 import { VelaLite, assessVela } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
-import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, resolveActivityType } from './constants.js';
+import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, DENY_SCORE_THRESHOLD, resolveActivityType } from './constants.js';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -25,6 +25,11 @@ function formatRulesOneliner(scored) {
   return `${T1_LABEL} | PROCEED | ${scored.triggerReason} | ${scored.activityType} | score ${scored.riskScore}`;
 }
 
+// Check if action has irreversibility signal (used for DENY threshold)
+function hasIrreversibilitySignal(triggerReason) {
+  return /irreversibility|scale|sensitive data/i.test(triggerReason || '');
+}
+
 export function configure(options = {}) {
   config = {
     llmKey: options.llmKey || null,
@@ -44,9 +49,7 @@ export function configure(options = {}) {
 }
 
 function isRadarEnabled() {
-  // Check process.env first (set by dashboard toggle)
   if (process.env.RADAR_ENABLED === 'false') return false;
-  // Check .radar/.env file
   const envPath = join(process.cwd(), '.radar', '.env');
   if (existsSync(envPath)) {
     const content = readFileSync(envPath, 'utf-8');
@@ -71,7 +74,7 @@ export async function assess(action, activityType, options = {}) {
 
   const agentId = options.agentId || null;
 
-  // Check if RADAR is enabled
+  // === RADAR DISABLED ===
   if (!isRadarEnabled()) {
     const resolvedType = resolveActivityType(activityType);
     const callId = register.generateCallId();
@@ -83,8 +86,8 @@ export async function assess(action, activityType, options = {}) {
     });
     log('info', `${T1_LABEL} | PROCEED | RADAR disabled by configuration | ${resolvedType}`);
     return {
-      proceed: true, verdict: 'PROCEED', tier: null,
-      riskScore: null, triggerReason: null,
+      status: 'PROCEED', proceed: true, tier: null,
+      reviewRequired: false, riskScore: null, triggerReason: null,
       activityType: resolvedType, callId,
       vela: null, options: null, recommended: null,
       promptMode: null, t2Attempted: false,
@@ -98,14 +101,35 @@ export async function assess(action, activityType, options = {}) {
   // Resolve deprecated types
   const resolvedType = resolveActivityType(activityType);
 
-  // Load activity config early — needed for holdAction on all HOLD paths
+  // Load activity config early — needed for holdAction on HOLD paths
   const activityConfig = await register.getActivityConfig(resolvedType);
   const holdAction = activityConfig?.hold_action || 'halt';
   const notifyUrl = holdAction === 'notify' ? (activityConfig?.notify_url || null) : null;
 
-  // Check trigger policy first
+  // === POLICY CHECK ===
   const policyDecision = await register.checkPolicy(action, agentId);
 
+  // DENY policy — hard stop
+  if (policyDecision === 'deny') {
+    const callId = register.generateCallId();
+    const actionHash = register.hashAction(action);
+    await register.save({
+      callId, actionHash, activityType: resolvedType,
+      tier: null, riskScore: null, verdict: 'DENY', policyDecision: 'deny'
+    });
+    log('info', `RADAR | DENY | Blocked by trigger policy | ${resolvedType}`);
+    return {
+      status: 'DENY', proceed: false, tier: null,
+      reviewRequired: false, riskScore: null,
+      triggerReason: 'Blocked by trigger policy',
+      activityType: resolvedType, callId,
+      vela: null, options: null, recommended: null,
+      reason: 'Blocked by trigger policy — override requires radar.strategy(callId, \'override_deny\', { reason, decidedBy })',
+      policyDecision: 'deny', radarEnabled: true
+    };
+  }
+
+  // human_required policy — HOLD with review
   if (policyDecision === 'human_required') {
     const callId = register.generateCallId();
     const actionHash = register.hashAction(action);
@@ -115,8 +139,9 @@ export async function assess(action, activityType, options = {}) {
     });
     log('info', `${T1_LABEL} | HOLD | Trigger policy requires human approval | ${resolvedType}`);
     return {
-      proceed: false, tier: 0, verdict: 'HOLD',
-      riskScore: 0, triggerReason: 'Trigger policy requires human approval',
+      status: 'HOLD', proceed: false, tier: 0,
+      reviewRequired: true, riskScore: 0,
+      triggerReason: 'Trigger policy requires human approval',
       activityType: resolvedType, callId,
       vela: null, options: null, recommended: null,
       promptMode: null, t2Attempted: false,
@@ -127,6 +152,7 @@ export async function assess(action, activityType, options = {}) {
     };
   }
 
+  // no_assessment policy — PROCEED
   if (policyDecision === 'no_assessment') {
     const callId = register.generateCallId();
     const actionHash = register.hashAction(action);
@@ -136,8 +162,9 @@ export async function assess(action, activityType, options = {}) {
     });
     log('info', `${T1_LABEL} | PROCEED | Trigger policy: no assessment needed | ${resolvedType}`);
     return {
-      proceed: true, tier: 0, verdict: 'PROCEED',
-      riskScore: 0, triggerReason: 'Trigger policy: no assessment needed',
+      status: 'PROCEED', proceed: true, tier: 0,
+      reviewRequired: false, riskScore: 0,
+      triggerReason: 'Trigger policy: no assessment needed',
       activityType: resolvedType, callId,
       vela: null, options: null, recommended: null,
       promptMode: null, t2Attempted: false,
@@ -147,7 +174,7 @@ export async function assess(action, activityType, options = {}) {
     };
   }
 
-  // Check activity-level human review requirement
+  // === ACTIVITY CONFIG: HUMAN REVIEW === (HOLD, not DENY)
   if (activityConfig && activityConfig.requires_human_review) {
     const callId = register.generateCallId();
     const actionHash = register.hashAction(action);
@@ -157,8 +184,9 @@ export async function assess(action, activityType, options = {}) {
     });
     log('info', `${T1_LABEL} | HOLD | Activity type requires human review | ${resolvedType}`);
     return {
-      proceed: false, tier: 0, verdict: 'HOLD',
-      riskScore: 0, triggerReason: 'Activity type requires human review',
+      status: 'HOLD', proceed: false, tier: 0,
+      reviewRequired: true, riskScore: 0,
+      triggerReason: 'Activity type requires human review',
       activityType: resolvedType, callId,
       vela: null, options: null, recommended: null,
       promptMode: null, t2Attempted: false,
@@ -169,13 +197,12 @@ export async function assess(action, activityType, options = {}) {
     };
   }
 
-  // Get slider — activity_config DB overrides JS config
+  // === CLASSIFIER ===
   const sliderPosition = activityConfig?.slider_position
     ?? config.activities[resolvedType]
-    ?? config.activities[activityType]  // fallback to original (deprecated) key
+    ?? config.activities[activityType]
     ?? DEFAULT_SLIDER;
 
-  // Run classifier
   const scored = classify(action, resolvedType, sliderPosition);
   const callId = register.generateCallId();
   const actionHash = register.hashAction(action);
@@ -183,28 +210,51 @@ export async function assess(action, activityType, options = {}) {
   const wouldEscalate = scored.wouldEscalate;
   const escalateTier = scored.escalateTier;
 
-  // Look up prior decision for this action hash
+  // === DENY: Score 20+ with irreversibility signal ===
+  if (scored.riskScore >= DENY_SCORE_THRESHOLD && hasIrreversibilitySignal(scored.triggerReason)) {
+    await register.save({
+      callId, actionHash, activityType: scored.activityType,
+      tier: 2, riskScore: scored.riskScore, verdict: 'DENY', policyDecision: 'assess'
+    });
+    log('info', `RADAR | DENY | Score ${scored.riskScore} with irreversibility — hard stop | ${scored.activityType}`);
+    return {
+      status: 'DENY', proceed: false, tier: 2,
+      reviewRequired: false, riskScore: scored.riskScore,
+      triggerReason: scored.triggerReason,
+      activityType: scored.activityType, callId,
+      vela: null, options: null, recommended: null,
+      reason: `Score ${scored.riskScore}/25 with irreversibility signal — hard stop. Override requires radar.strategy(callId, 'override_deny', { reason, decidedBy })`,
+      wouldEscalate, escalateTier,
+      policyDecision: 'assess', radarEnabled: true
+    };
+  }
+
+  // Prior decision lookup
   const priorDecision = await register.findPriorDecision(actionHash);
 
-  // Determine prompt mode from threshold
+  // Determine tier from threshold
   const thresholds = getThresholds(sliderPosition);
   const promptMode = scored.riskScore < thresholds.t2 ? 'oneliner' : 'tldr';
   const tier = promptMode === 'oneliner' ? 1 : 2;
 
-  // Save to register with pending verdict
+  // Save pending
   await register.save({
     callId, actionHash, activityType: scored.activityType,
     tier, riskScore: scored.riskScore, verdict: 'PENDING', policyDecision: 'assess'
   });
 
-  // No LLM key — fall back to rules engine formatted one-liner
+  // === NO LLM KEY — rules engine fallback ===
   if (!config.llmKey) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (No LLM key — rules engine only)`);
-    await register.updateVerdict(callId, 'PROCEED');
 
-    return {
-      proceed: true, tier, verdict: 'PROCEED',
+    // Without LLM: T1 = PROCEED, T2 = HOLD (can't assess without Vela)
+    const status = tier === 1 ? 'PROCEED' : 'HOLD';
+    await register.updateVerdict(callId, status);
+
+    const result = {
+      status, proceed: status === 'PROCEED', tier,
+      reviewRequired: status === 'HOLD',
       riskScore: scored.riskScore, triggerReason: scored.triggerReason,
       activityType: scored.activityType, callId,
       vela: formatted + '\n(No LLM key configured — Vela Lite assessment unavailable)',
@@ -214,9 +264,14 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: false, policyDecision: 'assess',
       radarEnabled: true
     };
+    if (status === 'HOLD') {
+      result.holdAction = holdAction;
+      result.notifyUrl = notifyUrl;
+    }
+    return result;
   }
 
-  // Vela Lite always runs when key is configured
+  // === VELA LITE ===
   try {
     const vela = await assessVela(
       action, scored.activityType, scored.riskScore, scored.triggerReason,
@@ -224,10 +279,15 @@ export async function assess(action, activityType, options = {}) {
     );
 
     log('info', vela.formatted);
-    await register.updateVerdict(callId, vela.verdict);
+
+    // T1: always PROCEED. T2: always HOLD.
+    // The LLM picks the recommended strategy at T2, not the verdict.
+    const status = tier === 1 ? 'PROCEED' : 'HOLD';
+    await register.updateVerdict(callId, status);
 
     const result = {
-      proceed: vela.verdict === 'PROCEED', tier, verdict: vela.verdict,
+      status, proceed: status === 'PROCEED', tier,
+      reviewRequired: status === 'HOLD',
       riskScore: scored.riskScore, triggerReason: scored.triggerReason,
       activityType: scored.activityType, callId,
       vela: vela.formatted, options: vela.options, recommended: vela.recommended,
@@ -236,7 +296,7 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: vela.parseFailed, policyDecision: 'assess',
       radarEnabled: true
     };
-    if (vela.verdict === 'HOLD') {
+    if (status === 'HOLD') {
       result.holdAction = holdAction;
       result.notifyUrl = notifyUrl;
     }
@@ -244,10 +304,14 @@ export async function assess(action, activityType, options = {}) {
   } catch (err) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (Vela Lite call failed: ${err.message})`);
-    await register.updateVerdict(callId, 'PROCEED');
 
-    return {
-      proceed: true, tier, verdict: 'PROCEED',
+    // LLM failed: T1 = PROCEED, T2 = HOLD (can't clear without Vela)
+    const status = tier === 1 ? 'PROCEED' : 'HOLD';
+    await register.updateVerdict(callId, status);
+
+    const result = {
+      status, proceed: status === 'PROCEED', tier,
+      reviewRequired: status === 'HOLD',
       riskScore: scored.riskScore, triggerReason: scored.triggerReason,
       activityType: scored.activityType, callId,
       vela: formatted + `\n(Vela Lite call failed: ${err.message})`,
@@ -257,6 +321,11 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: false, policyDecision: 'assess',
       radarEnabled: true
     };
+    if (status === 'HOLD') {
+      result.holdAction = holdAction;
+      result.notifyUrl = notifyUrl;
+    }
+    return result;
   }
 }
 
@@ -272,7 +341,6 @@ export async function stats() {
   return register.stats();
 }
 
-// Re-export register config methods for direct use
 export async function saveActivityConfig(activityType, actConfig) {
   return register.saveActivityConfig(activityType, actConfig);
 }

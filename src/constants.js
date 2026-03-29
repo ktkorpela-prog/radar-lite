@@ -1,14 +1,18 @@
 export const DEFAULT_SLIDER = 0.5;
 export const DEFAULT_PROVIDER = 'anthropic';
-export const VALID_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept'];
+export const VALID_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept', 'override_deny'];
 export const T1_LABEL = 'VELA LITE (T1)';
 export const T2_LABEL = 'VELA LITE (T2)';
 
 // v0.3 verdict model
-// T1 outcomes: PROCEED or ESCALATE
-// T2 outcomes: HOLD or DENY
-// Policy/config outcomes: DENY (hard stop) or PROCEED (no_assessment)
-export const VALID_STATUSES = ['PROCEED', 'ESCALATE', 'HOLD', 'DENY'];
+// T1: PROCEED (low risk, go ahead)
+// T2: HOLD (requires review, holdAction applies)
+// Policy/rules: DENY (hard stop, override_deny required to proceed)
+// ESCALATE is internal only — never returned to developer
+export const VALID_STATUSES = ['PROCEED', 'HOLD', 'DENY'];
+
+// Deny threshold — score at or above with irreversibility signal = DENY
+export const DENY_SCORE_THRESHOLD = 20;
 
 // v0.2 activity types — canonical list
 export const ACTIVITY_TYPES = [

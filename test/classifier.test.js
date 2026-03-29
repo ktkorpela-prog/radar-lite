@@ -4,8 +4,6 @@ import { classify, getThresholds } from '../src/classifier.js';
 
 describe('classifier — rules engine pre-scorer', () => {
 
-  // --- New v0.2 activity types ---
-
   it('email_single scores base 12', () => {
     const result = classify('Send email', 'email_single', 0.5);
     assert.equal(result.riskScore, 12);
@@ -70,8 +68,6 @@ describe('classifier — rules engine pre-scorer', () => {
     assert.equal(result.riskScore, 6);
   });
 
-  // --- Deprecated types ---
-
   it('deprecated "email" resolves to email_single', () => {
     const result = classify('Send email', 'email', 0.5);
     assert.equal(result.activityType, 'email_single');
@@ -87,8 +83,6 @@ describe('classifier — rules engine pre-scorer', () => {
     const result = classify('Delete record', 'data_deletion', 0.5);
     assert.equal(result.activityType, 'data_delete_single');
   });
-
-  // --- Signal modifiers (unchanged) ---
 
   it('increases score for mass/scale signals', () => {
     const base = classify('Send email', 'email_single', 0.5);
@@ -108,8 +102,6 @@ describe('classifier — rules engine pre-scorer', () => {
     assert.ok(sensitive.riskScore > base.riskScore);
   });
 
-  // --- Thresholds ---
-
   it('slider at 0.0 (permissive) raises thresholds', () => {
     const permissive = getThresholds(0.0);
     const conservative = getThresholds(1.0);
@@ -122,16 +114,12 @@ describe('classifier — rules engine pre-scorer', () => {
     assert.ok(result.riskScore <= 25);
   });
 
-  // --- Unknown types ---
-
   it('warns on unknown activity type and scores as default', () => {
     const result = classify('Do something', 'unknown_type', 0.5);
     assert.equal(result.activityType, 'unknown_type');
     assert.ok(result.riskScore >= 1);
     assert.ok(result.triggerReason.includes('Unknown type'));
   });
-
-  // --- Escalation ---
 
   it('returns wouldEscalate for extreme risk', () => {
     const result = classify('Delete all credit card payment records for everyone', 'financial', 1.0);
