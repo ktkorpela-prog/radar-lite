@@ -425,6 +425,16 @@ If `t2Provider` is not set, T2 uses the same provider as T1 but with the reasoni
 
 Every `assess()` call with an LLM key makes one LLM call. T1 uses fast/cheap models. T2 uses reasoning models — higher cost but T2 only fires when risk exceeds the threshold, so the majority of calls are T1-priced.
 
+### Provider verdict behaviour
+
+Different LLM providers follow the T2 prompt instructions with different levels of strictness. In end-to-end testing:
+
+- **Anthropic (Sonnet)** follows the "default to HOLD at T2" instruction reliably. High-risk actions consistently return HOLD with proportionate strategy options.
+- **OpenAI (GPT-4o)** tends to return PROCEED even when recommending AVOID or MITIGATE as the strategy. It does not apply the uncertainty tiebreaker as strongly.
+- **Google (Gemini)** — not yet tested at T2 with reasoning model.
+
+This is a model behaviour difference, not a code issue. If your use case requires stricter verdict discipline at T2, Anthropic is currently the more conservative reviewer. The dual-provider architecture lets you choose: use a permissive model for T1 routing and a stricter model for T2 review.
+
 ## License
 
 MIT — [EssentianLabs](https://essentianlabs.com)
