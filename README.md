@@ -39,6 +39,19 @@ In these domains, RADAR should be one input among several — combined with inde
 
 Neither verdict is a substitute for human accountability. The developer's code decides what to do with the verdict. RADAR advises — it does not enforce.
 
+## Prerequisites
+
+- Node.js 18 or higher — https://nodejs.org
+- npm (included with Node.js)
+
+**Windows users:** If you see "running scripts is disabled" in PowerShell, run this once:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+Then retry the install.
+
 ## Install
 
 ```bash
