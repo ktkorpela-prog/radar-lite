@@ -352,6 +352,32 @@ npm install @essentianlabs/radar-lite@0.2.4
 
 For decision-impacting releases: test against representative actions before upgrading to production.
 
+## Integration patterns and enforcement model
+
+RADAR Lite is a pre-action assessment layer. It evaluates a described action and returns a verdict — it does not intercept, block, or prevent execution by itself. How strongly that verdict is enforced depends entirely on the host application. Integration and governance are not the same thing. Developers must decide how to act on the verdict and implement enforcement in their own code.
+
+| Platform / Environment | Integration approach | Ease | Enforceability | Status | Notes |
+|------------------------|---------------------|------|----------------|--------|-------|
+| Custom Node.js agents | Native `import` — call `assess()` before actions | High | High | Supported | Developer controls execution flow directly. `if (!result.proceed) return` is real enforcement. |
+| LangChain (JavaScript) | Wrap `assess()` as middleware or custom tool in the chain | Medium | Medium–High | Supported | Enforceability depends on chain design. If `assess()` gates tool execution, enforcement is strong. If it's a parallel step, it's advisory. |
+| N8N | Use Code node to call `assess()`, or wrap as HTTP endpoint | Medium | Medium–High | Partial | Low-code friction — requires Code node or a local HTTP wrapper. If wired as a conditional branch (HOLD → stop), enforcement is strong. |
+| Python agents (CrewAI, AutoGen, etc.) | Not supported natively (JS package). Requires HTTP service wrapper or Python port. | Low | Depends on implementation | Not supported | Would need `radar-lite` running as a local HTTP service that Python calls. Enforceability depends on how the wrapper is integrated. |
+| Claude Code (via MCP) | MCP server wrapping `assess()` as a tool Claude calls before actions | Medium | Low | Experimental | See below. |
+
+### Claude Code and MCP
+
+An MCP server for RADAR would expose `assess()` as a tool that Claude calls before taking actions. The verdict is returned to Claude, which then decides whether to proceed or stop.
+
+This is advisory, not enforced. Claude seeing `HOLD` does not prevent Claude from acting — it relies on the model's instruction-following to respect the verdict. The developer's system prompt must instruct Claude to check RADAR and respect the result. There is no technical gate that blocks execution on HOLD.
+
+Segregation of duties matters here: if Claude is the agent being assessed, the LLM evaluating the risk should not be Claude (or any Anthropic model). Configure `llmProvider: 'openai'` or `llmProvider: 'google'` so the assessor is independent of the actor. The dual-provider architecture supports this — set a different provider for T2 review than the model performing the action.
+
+### Advisory vs enforcement
+
+RADAR does not intercept or block actions by itself. It returns a verdict. Enforcement only exists when the host application enforces that verdict — by checking `result.proceed` and halting execution when it is `false`.
+
+In MCP and tool-based integrations, enforcement relies on model behaviour and prompt design, not on technical controls. A model that ignores a HOLD verdict will proceed regardless. For stronger guarantees, enforcement must be implemented outside the model — in the orchestration layer, the tool execution framework, or the application code that wraps the agent.
+
 ## Dashboard
 
 ```bash
