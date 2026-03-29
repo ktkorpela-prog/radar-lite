@@ -9,6 +9,8 @@ import { join } from 'path';
 let config = {
   llmKey: null,
   llmProvider: DEFAULT_PROVIDER,
+  t2Provider: null,
+  t2Key: null,
   activities: {},
   logLevel: 'info'
 };
@@ -27,12 +29,16 @@ export function configure(options = {}) {
   config = {
     llmKey: options.llmKey || null,
     llmProvider: options.llmProvider || DEFAULT_PROVIDER,
+    t2Provider: options.t2Provider || null,
+    t2Key: options.t2Key || null,
     activities: options.activities || {},
     logLevel: options.logLevel || 'info'
   };
   log('verbose', '[radar-lite] Configured:', {
     provider: config.llmProvider,
+    t2Provider: config.t2Provider || '(same as primary)',
     hasKey: !!config.llmKey,
+    hasT2Key: !!config.t2Key,
     activities: Object.keys(config.activities)
   });
 }

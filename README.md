@@ -19,10 +19,12 @@ npm install @essentianlabs/radar-lite
 ```javascript
 import radar from '@essentianlabs/radar-lite';
 
-// Configure — LLM key is optional (enables Vela Lite assessment)
+// Configure — LLM key optional (enables Vela Lite assessment)
 radar.configure({
-  llmKey: process.env.ANTHROPIC_API_KEY,    // optional
-  llmProvider: 'anthropic',                  // 'anthropic' | 'openai' | 'google'
+  llmProvider: 'anthropic',                  // T1 scorer
+  llmKey: process.env.ANTHROPIC_API_KEY,     // optional — without it, rules engine only
+  t2Provider: 'openai',                      // T2 reviewer (optional — different provider)
+  t2Key: process.env.OPENAI_API_KEY,         // optional — falls back to llmKey
   activities: {
     email_single: 0.5,
     email_bulk: 0.8,
@@ -90,12 +92,14 @@ Every call to `radar.assess()` follows this flow:
 
 1. **Check trigger policy** — if a matching pattern exists, short-circuit with `human_required` or `no_assessment`
 2. **Check activity config** — if `requiresHumanReview` is on for this type, return HOLD immediately
-3. **Rules engine scores** — produces riskScore, triggerReason, activityType, rawTier
+3. **Rules engine scores** — deterministic scoring based on activity type, action text signals, and slider position. Produces riskScore, triggerReason, activityType, rawTier
 4. **Prior decision lookup** — if the action hash has been assessed before, the prior verdict is passed to Vela Lite as context
-5. **Vela Lite always called** with that context (when LLM key is configured)
-6. **Slider threshold determines output depth:**
-   - Score below T2 threshold → `oneliner` mode (tier 1)
-   - Score at or above T2 threshold → `tldr` mode with four options (tier 2)
+5. **Vela Lite called** with that context (when LLM key is configured). Every assessment makes an LLM call — your key, your cost
+6. **Slider threshold determines output depth and model:**
+   - Score below T2 threshold → **T1 oneliner** — fast model, one-line verdict, no strategy options (`options: null`)
+   - Score at or above T2 threshold → **T2 TL;DR** — reasoning model (or different provider), verdict + four strategy options (avoid/mitigate/transfer/accept)
+
+**Without an LLM key:** Both T1 and T2 fall back to a rules-engine-only formatted one-liner with PROCEED. No LLM call is made. You get scoring but no Vela verdict.
 
 ## Prior Decision Matching
 
@@ -131,7 +135,7 @@ Pattern-level acceptance (marking a reviewed decision as applicable to similar f
   options: null | { avoid, mitigate, transfer, accept },
   recommended: null | "mitigate",
   promptMode: "oneliner" | "tldr", // null for policy short-circuits
-  t2Attempted: true | false,
+  t2Attempted: true | false,       // true when LLM call succeeded (any tier)
   wouldEscalate: true | false,
   escalateTier: null | 3 | 4,
   parseFailed: true | false,
@@ -266,13 +270,34 @@ npx radar-lite version    # package version
 
 ## LLM providers
 
-Vela Lite uses your own LLM key. Supported providers:
+Vela Lite uses your own LLM key. Your key, your infrastructure, your cost. No data is sent to EssentianLabs.
 
-| Provider | Model | SDK |
-|----------|-------|-----|
-| Anthropic | claude-haiku-4-5 | @anthropic-ai/sdk |
-| OpenAI | gpt-4o-mini | openai |
-| Google | gemini-2.0-flash | openai (compatibility) |
+### Dual-provider architecture
+
+T1 and T2 use different model tiers by default — fast models for T1 routing, reasoning models for T2 assessment. You can also use a different provider for T2 to ensure segregation of duties (the model that scores is not the same model that reviews).
+
+```javascript
+radar.configure({
+  llmProvider: 'anthropic',              // T1 scorer — fast model
+  llmKey: process.env.ANTHROPIC_API_KEY,
+  t2Provider: 'openai',                  // T2 reviewer — different provider
+  t2Key: process.env.OPENAI_API_KEY
+});
+```
+
+If `t2Provider` is not set, T2 uses the same provider as T1 but with the reasoning model.
+
+### Models by tier
+
+| Provider | T1 (fast) | T2 (reasoning) |
+|----------|-----------|----------------|
+| Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 |
+| OpenAI | gpt-4o-mini | gpt-4o |
+| Google | gemini-2.0-flash | gemini-2.0-pro |
+
+### Cost
+
+Every `assess()` call with an LLM key makes one LLM call. T1 uses fast/cheap models. T2 uses reasoning models — higher cost but T2 only fires when risk exceeds the threshold, so the majority of calls are T1-priced.
 
 ## License
 

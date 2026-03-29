@@ -151,12 +151,18 @@ export async function assessVela(action, activityType, riskScore, triggerReason,
 
   const userMessage = buildUserMessage(action, activityType, riskScore, triggerReason, sliderPosition);
 
-  const raw = await callLLM(
-    config.llmProvider || DEFAULT_PROVIDER,
-    systemPrompt,
-    userMessage,
-    config.llmKey
-  );
+  // Determine provider and model tier based on mode
+  // T1 (oneliner): use primary provider with fast model
+  // T2 (tldr): use t2Provider (if configured) with reasoning model
+  const provider = mode === 'tldr' && config.t2Provider
+    ? config.t2Provider
+    : (config.llmProvider || DEFAULT_PROVIDER);
+  const apiKey = mode === 'tldr' && config.t2Key
+    ? config.t2Key
+    : config.llmKey;
+  const modelTier = mode === 'tldr' ? 'reasoning' : 'fast';
+
+  const raw = await callLLM(provider, systemPrompt, userMessage, apiKey, modelTier);
 
   return mode === 'oneliner'
     ? parseOnelinerResponse(raw)
