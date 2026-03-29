@@ -30,6 +30,12 @@ function hasIrreversibilitySignal(triggerReason) {
   return /irreversibility|scale|sensitive data/i.test(triggerReason || '');
 }
 
+// Backward compat: add verdict as alias for status
+function withVerdict(result) {
+  result.verdict = result.status;
+  return result;
+}
+
 export function configure(options = {}) {
   config = {
     llmKey: options.llmKey || null,
@@ -85,7 +91,7 @@ export async function assess(action, activityType, options = {}) {
       policyDecision: null, radarEnabled: false
     });
     log('info', `${T1_LABEL} | PROCEED | RADAR disabled by configuration | ${resolvedType}`);
-    return {
+    return withVerdict({
       status: 'PROCEED', proceed: true, tier: null,
       reviewRequired: false, riskScore: null, triggerReason: null,
       activityType: resolvedType, callId,
@@ -95,7 +101,7 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: false, policyDecision: null,
       radarEnabled: false,
       reason: 'RADAR disabled by configuration'
-    };
+    });
   }
 
   // Resolve deprecated types
@@ -118,7 +124,7 @@ export async function assess(action, activityType, options = {}) {
       tier: null, riskScore: null, verdict: 'DENY', policyDecision: 'deny'
     });
     log('info', `RADAR | DENY | Blocked by trigger policy | ${resolvedType}`);
-    return {
+    return withVerdict({
       status: 'DENY', proceed: false, tier: null,
       reviewRequired: false, riskScore: null,
       triggerReason: 'Blocked by trigger policy',
@@ -126,7 +132,7 @@ export async function assess(action, activityType, options = {}) {
       vela: null, options: null, recommended: null,
       reason: 'Blocked by trigger policy — override requires radar.strategy(callId, \'override_deny\', { reason, decidedBy })',
       policyDecision: 'deny', radarEnabled: true
-    };
+    });
   }
 
   // human_required policy — HOLD with review
@@ -138,7 +144,7 @@ export async function assess(action, activityType, options = {}) {
       tier: 0, riskScore: 0, verdict: 'HOLD', policyDecision: 'human_required'
     });
     log('info', `${T1_LABEL} | HOLD | Trigger policy requires human approval | ${resolvedType}`);
-    return {
+    return withVerdict({
       status: 'HOLD', proceed: false, tier: 0,
       reviewRequired: true, riskScore: 0,
       triggerReason: 'Trigger policy requires human approval',
@@ -149,7 +155,7 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: false, policyDecision: 'human_required',
       radarEnabled: true, reason: 'Trigger policy requires human approval',
       holdAction, notifyUrl
-    };
+    });
   }
 
   // no_assessment policy — PROCEED
@@ -161,7 +167,7 @@ export async function assess(action, activityType, options = {}) {
       tier: 0, riskScore: 0, verdict: 'PROCEED', policyDecision: 'no_assessment'
     });
     log('info', `${T1_LABEL} | PROCEED | Trigger policy: no assessment needed | ${resolvedType}`);
-    return {
+    return withVerdict({
       status: 'PROCEED', proceed: true, tier: 0,
       reviewRequired: false, riskScore: 0,
       triggerReason: 'Trigger policy: no assessment needed',
@@ -171,7 +177,7 @@ export async function assess(action, activityType, options = {}) {
       wouldEscalate: false, escalateTier: null,
       parseFailed: false, policyDecision: 'no_assessment',
       radarEnabled: true, reason: 'Trigger policy: no assessment needed'
-    };
+    });
   }
 
   // === ACTIVITY CONFIG: HUMAN REVIEW === (HOLD, not DENY)
@@ -183,7 +189,7 @@ export async function assess(action, activityType, options = {}) {
       tier: 0, riskScore: 0, verdict: 'HOLD', policyDecision: 'human_required'
     });
     log('info', `${T1_LABEL} | HOLD | Activity type requires human review | ${resolvedType}`);
-    return {
+    return withVerdict({
       status: 'HOLD', proceed: false, tier: 0,
       reviewRequired: true, riskScore: 0,
       triggerReason: 'Activity type requires human review',
@@ -194,7 +200,7 @@ export async function assess(action, activityType, options = {}) {
       parseFailed: false, policyDecision: 'human_required',
       radarEnabled: true, reason: 'Activity type requires human review',
       holdAction, notifyUrl
-    };
+    });
   }
 
   // === CLASSIFIER ===
@@ -217,7 +223,7 @@ export async function assess(action, activityType, options = {}) {
       tier: 2, riskScore: scored.riskScore, verdict: 'DENY', policyDecision: 'assess'
     });
     log('info', `RADAR | DENY | Score ${scored.riskScore} with irreversibility — hard stop | ${scored.activityType}`);
-    return {
+    return withVerdict({
       status: 'DENY', proceed: false, tier: 2,
       reviewRequired: false, riskScore: scored.riskScore,
       triggerReason: scored.triggerReason,
@@ -226,7 +232,7 @@ export async function assess(action, activityType, options = {}) {
       reason: `Score ${scored.riskScore}/25 with irreversibility signal — hard stop. Override requires radar.strategy(callId, 'override_deny', { reason, decidedBy })`,
       wouldEscalate, escalateTier,
       policyDecision: 'assess', radarEnabled: true
-    };
+    });
   }
 
   // Prior decision lookup
@@ -268,7 +274,7 @@ export async function assess(action, activityType, options = {}) {
       result.holdAction = holdAction;
       result.notifyUrl = notifyUrl;
     }
-    return result;
+    return withVerdict(result);
   }
 
   // === VELA LITE ===
@@ -300,7 +306,7 @@ export async function assess(action, activityType, options = {}) {
       result.holdAction = holdAction;
       result.notifyUrl = notifyUrl;
     }
-    return result;
+    return withVerdict(result);
   } catch (err) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (Vela Lite call failed: ${err.message})`);
@@ -325,7 +331,7 @@ export async function assess(action, activityType, options = {}) {
       result.holdAction = holdAction;
       result.notifyUrl = notifyUrl;
     }
-    return result;
+    return withVerdict(result);
   }
 }
 
