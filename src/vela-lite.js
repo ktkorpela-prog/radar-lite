@@ -24,10 +24,9 @@ function buildOnelinerPrompt(priorDecision) {
 You are assessing an action — what the agent intends to do — not content it has produced. If the input appears to be content rather than an action description, return HOLD and note the issue.
 Your assessment is bounded by the action description provided. You cannot verify what the agent actually executes — assess what you are told, and flag gaps explicitly rather than assuming them away.
 Return ONLY one line in this exact format, nothing else:
-${T1_LABEL} | PROCEED or HOLD | {one specific trigger reason} | {activityType} | score {n}
-Base your verdict on the risk score and trigger reason provided.
-HOLD if riskScore >= 8, or if the action is irreversible, affects many people, or has meaningful consequence if wrong.
-PROCEED if the action is routine, reversible, low consequence, or internal only.${priorLine}
+${T1_LABEL} | PROCEED | {one specific trigger reason} | {activityType} | score {n}
+This is a T1 low-risk assessment. Your verdict is PROCEED.
+Base your trigger reason on the risk score and context provided.${priorLine}
 No other text. No explanation.`;
 }
 
@@ -58,16 +57,16 @@ Return ONLY this exact format, nothing else:
 
 ${T2_LABEL} | {activityType} | score {score}
 
-{PROCEED or HOLD} — {one sentence recommendation, max 12 words}
+HOLD — {one sentence recommendation, max 12 words}
 
 ${strategyLines}
 
 — Vela Lite · EssentianLabs
 
 Rules:
-- The rules engine already determined this action exceeds the review threshold.
-- If evidence is genuinely ambiguous and you cannot resolve it, err toward HOLD. Name the specific uncertainty in your verdict. Do not default to HOLD as a habit — apply it only when the ambiguity is genuinely unresolvable.
-- A PROCEED at T2 must be explicitly justified by low consequence or high reversibility.
+- The rules engine already determined this action exceeds the review threshold. This action requires review.
+- Your verdict is always HOLD. T2 actions do not PROCEED — they are held for human or system review.
+- Your job is to recommend the best strategy (AVOID, MITIGATE, TRANSFER, or ACCEPT), not to decide whether to proceed.
 - Mark only ONE option with " (recommended)" inline
 - Each option must be specific to this action — no generic advice
 - No extra text before or after the format above${priorSection}`;

@@ -4,6 +4,12 @@ export const VALID_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept'];
 export const T1_LABEL = 'VELA LITE (T1)';
 export const T2_LABEL = 'VELA LITE (T2)';
 
+// v0.3 verdict model
+// T1 outcomes: PROCEED or ESCALATE
+// T2 outcomes: HOLD or DENY
+// Policy/config outcomes: DENY (hard stop) or PROCEED (no_assessment)
+export const VALID_STATUSES = ['PROCEED', 'ESCALATE', 'HOLD', 'DENY'];
+
 // v0.2 activity types — canonical list
 export const ACTIVITY_TYPES = [
   'email_single',
