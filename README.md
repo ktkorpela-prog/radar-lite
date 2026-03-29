@@ -2,6 +2,8 @@
 
 Early beta for evaluation only.
 
+RADAR Lite is in active evaluation. I'm testing both the framework and how people interpret it. If you try it, assume it's experimental and tell me where it breaks — technically or conceptually.
+
 Local risk assessment for AI agents. Vela Lite structures reasoning about agent actions before they execute.
 
 ## Advisory notice
