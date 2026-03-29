@@ -1,0 +1,12 @@
+{
+  "version": "0.2.6",
+  "releaseDate": "2026-03-29",
+  "updateType": "decision-impacting",
+  "classification": "Maintenance update",
+  "summary": "Update notification system, backup/restore CLI, README legal rewrite. No verdict logic changes.",
+  "advisory": null,
+  "revert": {
+    "quick": "npm install @essentianlabs/radar-lite@0.2.4",
+    "safe": "npx radar-lite backup (before upgrading), then restore from .radar-backup-*/"
+  }
+}

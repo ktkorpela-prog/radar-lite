@@ -302,6 +302,39 @@ This package follows semantic versioning for API and package behaviour.
 
 If your application depends on stable, reproducible verdicts, pin to a specific version. Review the changelog for entries marked as decision-impacting before upgrading.
 
+Update classifications:
+- **Maintenance update** — bug fixes, documentation, no verdict changes
+- **Decision logic changed** — scoring weights, thresholds, or prompt changes that may produce different verdicts for the same input
+- **API migration required** — breaking changes to the public API
+
+## Updates and rollback
+
+Updates are never forced. The dashboard can optionally check the npm registry for new versions — **this is disabled by default** and must be explicitly enabled via Settings or by setting `UPDATE_CHECK=true` in `.radar/.env`.
+
+### Backup before upgrading
+
+```bash
+npx radar-lite backup
+```
+
+Creates a timestamped copy of `.radar/` (database, config, .env) before you upgrade.
+
+### Two rollback paths
+
+**Quick revert** — reinstall the previous version:
+```bash
+npm install @essentianlabs/radar-lite@0.2.4
+```
+
+**Safe revert** — restore from backup:
+```bash
+rm -rf .radar
+mv .radar-backup-v0.2.4-2026-03-29 .radar
+npm install @essentianlabs/radar-lite@0.2.4
+```
+
+For decision-impacting releases: test against representative actions before upgrading to production.
+
 ## Dashboard
 
 ```bash

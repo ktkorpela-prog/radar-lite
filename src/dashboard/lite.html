@@ -375,6 +375,16 @@
   </div>
 
   <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:500;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
+  <div id="update-banner" style="display:none;background:#161616;border:1px solid #2a2a2a;padding:14px 20px;margin-bottom:16px;border-radius:6px;font-size:13px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-weight:600;color:#f0ede8;margin-bottom:4px" id="update-title"></div>
+        <div style="color:#909090;font-size:12px" id="update-advisory"></div>
+        <div style="color:#666;font-size:11px;margin-top:6px" id="update-revert"></div>
+      </div>
+      <button onclick="document.getElementById('update-banner').style.display='none'" style="background:none;border:none;color:#555;font-size:16px;cursor:pointer;padding:0 4px">&times;</button>
+    </div>
+  </div>
 
   <!-- Overview -->
   <div class="tab-panel active" id="panel-overview">
@@ -449,6 +459,19 @@
         <span class="setting-label">RADAR assessment is <strong id="radar-status-text">enabled</strong></span>
         <label class="hr-toggle">
           <input type="checkbox" id="radar-enabled-toggle" checked onchange="toggleRadarEnabled(this.checked)">
+          <span class="hr-switch"></span>
+        </label>
+      </div>
+    </div>
+    <div class="settings-section">
+      <h3>Update Notifications</h3>
+      <div class="setting-row">
+        <div>
+          <span class="setting-label">Check for new versions on dashboard load</span>
+          <div style="font-size:11px;color:#555;margin-top:2px">Disabled by default. When enabled, checks the npm registry once on dashboard load. No data is sent beyond the version check.</div>
+        </div>
+        <label class="hr-toggle">
+          <input type="checkbox" id="update-check-toggle" onchange="toggleUpdateCheck(this.checked)">
           <span class="hr-switch"></span>
         </label>
       </div>
@@ -546,6 +569,7 @@ function enterDashboard() {
     loadStats();
     loadSettings();
     checkRadarEnabled();
+    checkForUpdates();
   }, 400);
 }
 
@@ -574,6 +598,28 @@ async function toggleRadarEnabled(enabled) {
     });
     checkRadarEnabled();
   } catch (e) { console.error('Toggle error', e); }
+}
+
+async function checkForUpdates() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/update-check`);
+    const d = await r.json();
+    if (!d.check_enabled || !d.update_available) return;
+
+    const banner = document.getElementById('update-banner');
+    const title = document.getElementById('update-title');
+    const advisory = document.getElementById('update-advisory');
+    const revert = document.getElementById('update-revert');
+
+    title.textContent = `v${d.latest_version} available — ${d.current_classification || 'Maintenance update'}`;
+    if (d.current_advisory) {
+      advisory.textContent = d.current_advisory;
+    }
+    if (d.revert) {
+      revert.innerHTML = `Quick revert: <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">${d.revert.quick || 'npm install @essentianlabs/radar-lite@' + d.current_version}</code> · Safe revert: run <code style="background:#0d0d0d;padding:2px 6px;border-radius:3px">npx radar-lite backup</code> before upgrading`;
+    }
+    banner.style.display = 'block';
+  } catch (e) {}
 }
 
 async function checkPasswordRequired() {
@@ -1803,6 +1849,26 @@ function copySnippet(agentId) {
 function loadSettings() {
   loadLlmConfig();
   loadActivityConfig();
+  loadUpdateCheckToggle();
+}
+
+async function loadUpdateCheckToggle() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/update-check-enabled`);
+    const d = await r.json();
+    const toggle = document.getElementById('update-check-toggle');
+    if (toggle) toggle.checked = d.enabled;
+  } catch (e) {}
+}
+
+async function toggleUpdateCheck(enabled) {
+  try {
+    await fetch(`${BASE}/dashboard/update-check-enabled`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    if (enabled) checkForUpdates();
+  } catch (e) { console.error('Update check toggle error', e); }
 }
 
 const MODEL_MAP = {

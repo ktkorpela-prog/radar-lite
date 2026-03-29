@@ -458,6 +458,79 @@ export function startDashboard(port = 4040) {
     res.json({ success: true, enabled: !!enabled });
   });
 
+  // --- Update check (disabled by default — opt-in via .radar/.env UPDATE_CHECK=true) ---
+
+  app.get('/dashboard/update-check-enabled', (req, res) => {
+    const env = readEnv();
+    const enabled = (env.UPDATE_CHECK || process.env.UPDATE_CHECK || 'false').toLowerCase() === 'true';
+    res.json({ enabled });
+  });
+
+  // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
+  app.post('/dashboard/update-check-enabled', (req, res) => {
+    const { enabled } = req.body;
+    const env = readEnv();
+    env.UPDATE_CHECK = enabled ? 'true' : 'false';
+    writeEnv(env);
+    process.env.UPDATE_CHECK = enabled ? 'true' : 'false';
+    res.json({ success: true, enabled: !!enabled });
+  });
+
+  app.get('/dashboard/update-check', async (req, res) => {
+    const env = readEnv();
+    const checkEnabled = (env.UPDATE_CHECK || process.env.UPDATE_CHECK || 'false').toLowerCase() === 'true';
+
+    // Read local update metadata
+    const metaPath = join(__dirname, '..', 'update-meta.json');
+    let localMeta = {};
+    try { localMeta = JSON.parse(readFileSync(metaPath, 'utf-8')); } catch (e) {}
+
+    if (!checkEnabled) {
+      return res.json({
+        check_enabled: false,
+        current_version: localMeta.version || VelaLite.profile.version,
+        current_classification: localMeta.classification || 'Unknown',
+        current_advisory: localMeta.advisory || null,
+        latest_version: null,
+        update_available: false
+      });
+    }
+
+    // Fetch latest version from npm registry
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const r = await fetch('https://registry.npmjs.org/@essentianlabs/radar-lite/latest', {
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      const d = await r.json();
+
+      const currentVersion = localMeta.version || VelaLite.profile.version;
+      const latestVersion = d.version;
+      const updateAvailable = latestVersion !== currentVersion;
+
+      res.json({
+        check_enabled: true,
+        current_version: currentVersion,
+        current_classification: localMeta.classification || 'Unknown',
+        current_advisory: localMeta.advisory || null,
+        latest_version: latestVersion,
+        update_available: updateAvailable,
+        revert: localMeta.revert || null
+      });
+    } catch (e) {
+      res.json({
+        check_enabled: true,
+        current_version: localMeta.version || VelaLite.profile.version,
+        current_classification: localMeta.classification || 'Unknown',
+        latest_version: null,
+        update_available: false,
+        error: 'Could not reach npm registry'
+      });
+    }
+  });
+
   // --- Serve dashboard pages ---
 
   app.get('/lite', (req, res) => {

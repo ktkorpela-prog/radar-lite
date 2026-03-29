@@ -34,8 +34,28 @@ if (command === 'dashboard') {
     }
     console.log();
   }
+} else if (command === 'backup') {
+  const { existsSync, cpSync, readFileSync } = await import('fs');
+  const { join } = await import('path');
+  const radarDir = join(process.cwd(), '.radar');
+  if (!existsSync(radarDir)) {
+    console.log('\n  No .radar/ directory found — nothing to back up.\n');
+    process.exit(0);
+  }
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
+  const date = new Date().toISOString().slice(0, 10);
+  const backupDir = join(process.cwd(), `.radar-backup-v${pkg.version}-${date}`);
+  if (existsSync(backupDir)) {
+    console.log(`\n  Backup already exists: ${backupDir}\n`);
+    process.exit(0);
+  }
+  cpSync(radarDir, backupDir, { recursive: true });
+  console.log(`\n  VELA LITE · backup created`);
+  console.log(`  From: ${radarDir}`);
+  console.log(`  To:   ${backupDir}`);
+  console.log(`\n  To restore: remove .radar/ and rename the backup directory to .radar/\n`);
 } else {
   console.log(`Unknown command: ${command}`);
-  console.log('Usage: radar-lite [dashboard|stats|history|version]');
+  console.log('Usage: radar-lite [dashboard|stats|history|backup|version]');
   process.exit(1);
 }
