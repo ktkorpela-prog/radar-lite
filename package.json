@@ -1,9 +1,10 @@
 {
   "name": "@essentianlabs/radar-lite",
-  "version": "0.3.0",
-  "description": "Local risk assessment for AI agents. Vela Lite runs on your machine.",
+  "version": "0.3.2",
+  "description": "Pre-action risk assessment for AI agents. PROCEED, HOLD, or DENY — local, private, no data sent to EssentianLabs.",
   "type": "module",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "bin": {
     "radar-lite": "bin/radar-lite.js"
   },
@@ -16,7 +17,14 @@
     "agents",
     "risk",
     "governance",
-    "safety"
+    "safety",
+    "ai-safety",
+    "guardrails",
+    "mcp",
+    "n8n",
+    "langchain",
+    "tool-use",
+    "risk-assessment"
   ],
   "author": "EssentianLabs",
   "license": "MIT",

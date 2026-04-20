@@ -2,10 +2,13 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { homedir } from 'os';
 import { timingSafeEqual } from 'crypto';
 import * as register from '../register.js';
+import { assess, strategy as recordStrat, reload, configure } from '../index.js';
 import { VelaLite } from '../vela-lite.js';
 import { getModelName } from '../providers.js';
+import { ACTIVITY_TYPES, VALID_STRATEGIES } from '../constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,7 +16,7 @@ const __dirname = dirname(__filename);
 const VALID_PROVIDERS = ['anthropic', 'openai', 'google'];
 
 function getEnvPath() {
-  const dir = join(process.cwd(), '.radar');
+  const dir = join(homedir(), '.radar');
   mkdirSync(dir, { recursive: true });
   return join(dir, '.env');
 }
@@ -41,9 +44,35 @@ function writeEnv(env) {
   writeFileSync(envPath, lines.join('\n') + '\n', 'utf-8');
 }
 
+// Simple in-memory rate limiter — prevents runaway loops from racking up LLM costs
+function createRateLimiter(maxPerMinute = 100) {
+  let count = 0;
+  let resetTime = Date.now() + 60000;
+  return (req, res, next) => {
+    const now = Date.now();
+    if (now > resetTime) { count = 0; resetTime = now + 60000; }
+    count++;
+    if (count > maxPerMinute) {
+      return res.status(429).json({ error: `Rate limit exceeded — max ${maxPerMinute} requests per minute` });
+    }
+    next();
+  };
+}
+
 export function startDashboard(port = 4040) {
   const app = express();
   app.use(express.json());
+
+  const assessRateLimiter = createRateLimiter(100);
+
+  // Configure radar once on server start — not per-request (prevents race conditions)
+  const env = readEnv();
+  configure({
+    llmProvider: env.LLM_PROVIDER || process.env.LLM_PROVIDER || 'anthropic',
+    llmKey: env.LLM_API_KEY || process.env.LLM_API_KEY || null,
+    t2Provider: env.T2_PROVIDER || process.env.T2_PROVIDER || null,
+    t2Key: env.T2_API_KEY || process.env.T2_API_KEY || null
+  });
 
   // --- Core API endpoints ---
 
@@ -65,6 +94,65 @@ export function startDashboard(port = 4040) {
       res.json(await register.history(limit));
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // --- HTTP API for external integrations (n8n, Python, etc.) ---
+
+  // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
+  app.post('/assess', assessRateLimiter, async (req, res) => {
+    try {
+      const { action, activityType, agentId } = req.body;
+
+      // Validate action
+      if (!action || typeof action !== 'string' || action.trim().length === 0) {
+        return res.status(400).json({ error: 'action is required and must be a non-empty string' });
+      }
+      if (action.length > 4000) {
+        return res.status(400).json({ error: 'action must not exceed 4000 characters' });
+      }
+
+      // Validate activityType
+      if (!activityType || typeof activityType !== 'string') {
+        return res.status(400).json({ error: 'activityType is required and must be a string' });
+      }
+      if (!ACTIVITY_TYPES.includes(activityType)) {
+        return res.status(400).json({
+          error: `Invalid activityType "${activityType}". Valid types: ${ACTIVITY_TYPES.join(', ')}`
+        });
+      }
+
+      await reload();
+      const result = await assess(action, activityType, { agentId: agentId || null });
+      res.json(result);
+    } catch (err) {
+      // M7: never expose raw LLM errors
+      res.status(500).json({ error: 'Assessment failed', t2Attempted: false });
+    }
+  });
+
+  // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
+  app.post('/strategy', assessRateLimiter, async (req, res) => {
+    try {
+      const { callId, strategy, justification, decidedBy, scope } = req.body;
+
+      if (!callId || typeof callId !== 'string') {
+        return res.status(400).json({ error: 'callId is required' });
+      }
+      if (!strategy || !VALID_STRATEGIES.includes(strategy)) {
+        return res.status(400).json({
+          error: `Invalid strategy. Valid: ${VALID_STRATEGIES.join(', ')}`
+        });
+      }
+
+      const result = await recordStrat(callId, strategy, {
+        justification: justification || undefined,
+        decidedBy: decidedBy || undefined,
+        scope: scope || 'single'
+      });
+      res.json({ success: true, callId, ...result });
+    } catch (err) {
+      res.status(500).json({ error: 'Strategy recording failed' });
     }
   });
 
@@ -105,12 +193,12 @@ export function startDashboard(port = 4040) {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, count]) => ({ date, count }));
 
-      // Convert perDayByAgent to { agent_id: [{ date, count }] }
+      // Convert perDayByAgent to { agent_id: [{ _id, count }] }
       const perDayByAgentArr = {};
       for (const [aid, days] of Object.entries(perDayByAgent)) {
         perDayByAgentArr[aid] = Object.entries(days)
           .sort(([a], [b]) => a.localeCompare(b))
-          .map(([date, count]) => ({ date, count }));
+          .map(([date, count]) => ({ _id: date, count }));
       }
 
       // Recent calls (last 20)
@@ -200,13 +288,13 @@ export function startDashboard(port = 4040) {
             agent_id: aid,
             display_name: aid,
             description: '',
-            total: 0,
+            count: 0,
             held: 0,
             last_seen: null,
             unregistered: aid === 'default'
           };
         }
-        agentMap[aid].total++;
+        agentMap[aid].count++;
         if (c.verdict === 'HOLD') agentMap[aid].held++;
         if (!agentMap[aid].last_seen || c.created_at > agentMap[aid].last_seen) {
           agentMap[aid].last_seen = c.created_at;

@@ -346,6 +346,7 @@
         <input type="password" id="key-input" placeholder="Dashboard password" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter')verifyKey()">
         <button class="auth-toggle-vis" onclick="toggleKeyVis()" title="Show/hide">&#9673;</button>
       </div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.3);line-height:1.5;margin-bottom:12px;text-align:left">This password is a casual access gate &mdash; not encrypted authentication. It prevents accidental access to the dashboard, not determined access. Do not use a sensitive or reused password.</div>
       <button class="auth-btn" id="auth-btn" onclick="verifyKey()">Access dashboard &rarr;</button>
       <div class="auth-status-msg" id="auth-error"></div>
       <div class="auth-links">
@@ -402,6 +403,7 @@
       <div class="stat-card t2"><div class="label">T2</div><div class="value" id="stat-t2">0</div></div>
       <div class="stat-card t3"><div class="label">T3</div><div class="value" id="stat-t3">0</div></div>
       <div class="stat-card t4"><div class="label">T4</div><div class="value" id="stat-t4">0</div></div>
+      <div class="stat-card"><div class="label">Policy/Bypass</div><div class="value" id="stat-policy" style="color:#909090">0</div><div class="sublabel" style="font-size:10px;color:#666;margin-top:2px">unscored</div></div>
       <div class="stat-card"><div class="label">This Month</div><div class="value" id="stat-month" style="color:#c4943a">0</div></div>
     </div>
 
@@ -477,6 +479,7 @@
         </div>
       </div>
       <div style="font-size:11px;color:#555;margin-top:6px" id="t1-model-label">Model: claude-haiku-4-5</div>
+      <div id="no-llm-warning" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:4px;font-size:11px;color:#fbbf24;line-height:1.5">No LLM key configured &mdash; running rules engine only. Vela cannot reason about actions without an LLM key. Add a key above to enable full risk assessment.</div>
     </div>
     <div class="settings-section">
       <h3>T2 Reviewer — Reasoning Model</h3>
@@ -811,20 +814,30 @@ async function loadAgents() {
 }
 
 function populateAgentDropdowns() {
-  // Derive counts from cached per-agent data if backend doesn't provide them
+  // Derive counts from cached per-agent data
   const derivedCounts = {};
   if (allPerDayByAgent) {
     for (const [aid, days] of Object.entries(allPerDayByAgent)) {
       derivedCounts[aid] = days.reduce((s, d) => s + (d.count || 0), 0);
     }
   }
+  // Build merged agent list — backend agents + any agents found in data
+  const mergedAgents = new Map();
+  for (const a of agentsList) {
+    const id = a.agent_id || 'Unidentified';
+    mergedAgents.set(id, { agent_id: a.agent_id, count: a.count || derivedCounts[id] || derivedCounts[a.agent_id] || 0 });
+  }
+  // Add agents found in data but missing from backend agents list
+  for (const [aid, count] of Object.entries(derivedCounts)) {
+    if (!mergedAgents.has(aid)) {
+      mergedAgents.set(aid, { agent_id: aid, count });
+    }
+  }
   ['agent-select-overview', 'agent-select-calls'].forEach(id => {
     const sel = document.getElementById(id);
     sel.innerHTML = '<option value="">All Agents</option>';
-    for (const a of agentsList) {
-      const name = a.agent_id || 'Unidentified';
-      const count = a.count || derivedCounts[a.agent_id] || derivedCounts[name] || 0;
-      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${count} calls)</option>`;
+    for (const [name, a] of mergedAgents) {
+      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${a.count} calls)</option>`;
     }
   });
 }
@@ -882,6 +895,8 @@ async function loadStats() {
     document.getElementById('stat-t2').textContent = d.by_tier[2] || 0;
     document.getElementById('stat-t3').textContent = d.by_tier[3] || 0;
     document.getElementById('stat-t4').textContent = d.by_tier[4] || 0;
+    const policyCount = (d.by_tier[0] || 0) + (d.disabled || 0);
+    document.getElementById('stat-policy').textContent = policyCount;
     document.getElementById('stat-month').textContent = d.calls_this_month || 0;
 
     // Derive per_day_by_agent from recent calls if backend doesn't provide it
@@ -1057,34 +1072,39 @@ function renderBoxPlot(perDayByAgent) {
 
   // Compute per-agent stats
   const agents = [];
-  let globalMax = 0;
+  let globalMaxTotal = 0;
+  let globalMaxDaily = 0;
   let colorIdx = 0;
   for (const [agentId, days] of Object.entries(perDayByAgent)) {
     const byDate = {};
     for (const d of days) byDate[d._id] = d.count || 0;
     const values = dayLabels.map(date => byDate[date] || 0);
     const nonZero = values.filter(v => v > 0);
-    const sorted = [...values].sort((a, b) => a - b);
-    const max = sorted[sorted.length - 1];
-    const q1 = sorted[Math.floor(sorted.length * 0.25)];
-    const median = sorted[Math.floor(sorted.length * 0.5)];
-    const q3 = sorted[Math.floor(sorted.length * 0.75)];
+    const sorted = [...nonZero].sort((a, b) => a - b);
+    const max = sorted.length > 0 ? sorted[sorted.length - 1] : 0;
+    const q1 = sorted.length >= 4 ? sorted[Math.floor(sorted.length * 0.25)] : (sorted[0] || 0);
+    const median = sorted.length >= 2 ? sorted[Math.floor(sorted.length * 0.5)] : (sorted[0] || 0);
+    const q3 = sorted.length >= 4 ? sorted[Math.floor(sorted.length * 0.75)] : max;
     const total = values.reduce((s, v) => s + v, 0);
-    const avg = nonZero.length > 0 ? total / nonZero.length : 0;
-    if (max > globalMax) globalMax = max;
-    agents.push({ agentId, values, max, q1, median, q3, total, avg, color: AGENT_COLORS[colorIdx % AGENT_COLORS.length] });
+    const activeDays = nonZero.length;
+    const avg = activeDays > 0 ? total / activeDays : 0;
+    if (total > globalMaxTotal) globalMaxTotal = total;
+    if (max > globalMaxDaily) globalMaxDaily = max;
+    agents.push({ agentId, values, max, q1, median, q3, total, avg, activeDays, color: AGENT_COLORS[colorIdx % AGENT_COLORS.length] });
     colorIdx++;
   }
 
-  // Horizontal box plot — each agent is a row
+  // Sort agents by total calls descending
+  agents.sort((a, b) => b.total - a.total);
+
   const rect = document.getElementById('boxplot-container').getBoundingClientRect();
   const svgW = rect.width - 32;
-  const rowH = 36;
-  const labelW = 100;
-  const margin = { top: 20, right: 16, bottom: 4, left: labelW + 8 };
+  const rowH = 44;
+  const labelW = 110;
+  const margin = { top: 24, right: 50, bottom: 8, left: labelW + 8 };
   const svgH = margin.top + agents.length * rowH + margin.bottom;
   const plotW = svgW - margin.left - margin.right;
-  const scale = globalMax > 0 ? globalMax + 1 : 2;
+  const scale = globalMaxTotal > 0 ? globalMaxTotal * 1.15 : 2;
   const xScale = v => margin.left + (v / scale) * plotW;
 
   const svg = d3.select(container).append('svg').attr('width', svgW).attr('height', svgH);
@@ -1092,9 +1112,10 @@ function renderBoxPlot(perDayByAgent) {
   const tip = document.getElementById('boxplot-tooltip');
 
   // X-axis ticks at top
-  const tickCount = Math.min(Math.ceil(scale), 8);
+  const niceMax = Math.ceil(scale);
+  const tickCount = Math.min(niceMax, 6);
   for (let i = 0; i <= tickCount; i++) {
-    const val = Math.round(scale / tickCount * i);
+    const val = Math.round(niceMax / tickCount * i);
     const x = xScale(val);
     g.append('line').attr('x1', x).attr('x2', x).attr('y1', margin.top - 4).attr('y2', svgH - margin.bottom).attr('stroke', '#2a2a2a').attr('stroke-width', 1);
     g.append('text').attr('x', x).attr('y', margin.top - 8).attr('text-anchor', 'middle').attr('fill', '#909090').attr('font-size', '9px').text(val);
@@ -1109,62 +1130,78 @@ function renderBoxPlot(perDayByAgent) {
     const dimmed = hasSelection && !isSelected;
 
     // Agent label (left)
-    g.append('text').attr('x', margin.left - 8).attr('y', midY).attr('dy', '0.35em')
+    g.append('text').attr('x', margin.left - 8).attr('y', midY - 4).attr('dy', '0.35em')
       .attr('text-anchor', 'end').attr('fill', dimmed ? '#444' : a.color)
       .attr('font-size', '11px').attr('font-weight', isSelected ? '700' : '500')
       .attr('cursor', 'pointer')
       .text(truncate(a.agentId || 'Unidentified', 14))
       .on('click', () => onAgentFilter(a.agentId || ''));
 
-    // Whisker line (min non-zero to max) — full height of row
-    const minNZ = a.values.filter(v => v > 0).sort((x, y) => x - y)[0] || 0;
-    const boxHalf = 12;
-    g.append('line').attr('x1', xScale(minNZ)).attr('x2', xScale(a.max)).attr('y1', midY).attr('y2', midY)
-      .attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.6)').attr('stroke-width', 1.5);
-    // Whisker caps
-    g.append('line').attr('x1', xScale(minNZ)).attr('x2', xScale(minNZ)).attr('y1', midY - 6).attr('y2', midY + 6)
-      .attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.6)').attr('stroke-width', 1.5);
-    g.append('line').attr('x1', xScale(a.max)).attr('x2', xScale(a.max)).attr('y1', midY - 6).attr('y2', midY + 6)
-      .attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.6)').attr('stroke-width', 1.5);
+    // Subtitle: active days
+    g.append('text').attr('x', margin.left - 8).attr('y', midY + 10).attr('dy', '0.35em')
+      .attr('text-anchor', 'end').attr('fill', dimmed ? '#333' : '#666')
+      .attr('font-size', '9px')
+      .text(`${a.activeDays} active day${a.activeDays !== 1 ? 's' : ''}`);
 
-    // IQR box — ensure minimum visible width
-    const boxX = xScale(a.q1);
-    const boxW = Math.max(8, xScale(a.q3) - boxX);
-    g.append('rect').attr('x', boxX).attr('y', midY - boxHalf).attr('width', boxW).attr('height', boxHalf * 2)
-      .attr('fill', dimmed ? '#1a1a1a' : (a.color + '30')).attr('stroke', dimmed ? '#2a2a2a' : 'rgba(255,255,255,0.5)').attr('stroke-width', 1.5).attr('rx', 3);
+    // Total calls bar — primary visual
+    const barH = 18;
+    const barW = Math.max(4, xScale(a.total) - margin.left);
+    g.append('rect').attr('x', margin.left).attr('y', midY - barH / 2).attr('width', barW).attr('height', barH)
+      .attr('fill', dimmed ? '#1a1a1a' : (a.color + '40')).attr('stroke', dimmed ? '#2a2a2a' : (a.color + '80'))
+      .attr('stroke-width', 1).attr('rx', 3)
+      .attr('cursor', 'pointer')
+      .on('click', () => onAgentFilter(a.agentId || ''))
+      .on('mouseenter', function(event) {
+        d3.select(this).attr('fill', a.color + '60').attr('stroke', a.color);
+        tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>` +
+          `<span style="color:#fff">Total: ${a.total} calls</span><br>` +
+          `<span style="color:#909090">${a.activeDays} active day${a.activeDays !== 1 ? 's' : ''} · ` +
+          `Avg: ${a.avg.toFixed(1)}/day · Max: ${a.max}/day · Med: ${a.median}/day</span>`;
+        tip.style.display = 'block';
+        const cr = document.getElementById('boxplot-container').getBoundingClientRect();
+        tip.style.left = (event.clientX - cr.left + 12) + 'px';
+        tip.style.top = (event.clientY - cr.top - 40) + 'px';
+      })
+      .on('mouseleave', function() {
+        d3.select(this).attr('fill', dimmed ? '#1a1a1a' : (a.color + '40')).attr('stroke', dimmed ? '#2a2a2a' : (a.color + '80'));
+        tip.style.display = 'none';
+      });
 
-    // Median line — thick and visible
-    g.append('line').attr('x1', xScale(a.median)).attr('x2', xScale(a.median)).attr('y1', midY - boxHalf).attr('y2', midY + boxHalf)
-      .attr('stroke', dimmed ? '#333' : '#ffffff').attr('stroke-width', 2.5);
+    // Total count label to the right of bar
+    g.append('text').attr('x', margin.left + barW + 8).attr('y', midY).attr('dy', '0.35em')
+      .attr('fill', dimmed ? '#444' : '#f0ede8').attr('font-size', '12px').attr('font-weight', '600')
+      .text(a.total);
 
-    // Scatter bubbles with jitter
-    for (let di = 0; di < a.values.length; di++) {
-      const val = a.values[di];
-      if (val === 0) continue;
-      const jitterY = (Math.random() - 0.5) * (rowH * 0.45);
-      const bx = xScale(val) + (Math.random() - 0.5) * 4;
-      const by = midY + jitterY;
-      const r = isSelected ? 5 : (dimmed ? 2.5 : 3.5);
-      const opacity = isSelected ? 0.9 : (dimmed ? 0.15 : 0.6);
-      const fill = dimmed ? '#444' : a.color;
+    // Daily scatter bubbles overlaid on bar (if multiple days of data)
+    if (a.activeDays > 1) {
+      for (let di = 0; di < a.values.length; di++) {
+        const val = a.values[di];
+        if (val === 0) continue;
+        // Scale individual day values proportional to total bar
+        const bx = margin.left + (val / scale) * plotW;
+        const jitterY = (Math.random() - 0.5) * (barH * 0.6);
+        const by = midY + jitterY;
+        const r = isSelected ? 4 : (dimmed ? 2 : 3);
+        const opacity = isSelected ? 0.9 : (dimmed ? 0.15 : 0.7);
 
-      g.append('circle').attr('cx', bx).attr('cy', by).attr('r', r)
-        .attr('fill', fill).attr('fill-opacity', opacity)
-        .attr('stroke', isSelected ? '#fff' : 'none').attr('stroke-width', isSelected ? 1.5 : 0)
-        .attr('cursor', 'pointer')
-        .on('click', () => onAgentFilter(a.agentId || ''))
-        .on('mouseenter', function(event) {
-          d3.select(this).attr('r', r + 2).attr('fill', a.color).attr('fill-opacity', 1);
-          tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}<br><span style="color:#909090">Total: ${a.total} (30d) · Avg: ${a.avg.toFixed(1)}/day · Med: ${a.median}</span>`;
-          tip.style.display = 'block';
-          const cr = document.getElementById('boxplot-container').getBoundingClientRect();
-          tip.style.left = (event.clientX - cr.left + 12) + 'px';
-          tip.style.top = (event.clientY - cr.top - 40) + 'px';
-        })
-        .on('mouseleave', function() {
-          d3.select(this).attr('r', r).attr('fill', fill).attr('fill-opacity', opacity);
-          tip.style.display = 'none';
-        });
+        g.append('circle').attr('cx', bx).attr('cy', by).attr('r', r)
+          .attr('fill', dimmed ? '#444' : a.color).attr('fill-opacity', opacity)
+          .attr('stroke', isSelected ? '#fff' : 'none').attr('stroke-width', isSelected ? 1 : 0)
+          .attr('cursor', 'pointer')
+          .on('click', () => onAgentFilter(a.agentId || ''))
+          .on('mouseenter', function(event) {
+            d3.select(this).attr('r', r + 2).attr('fill-opacity', 1);
+            tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}`;
+            tip.style.display = 'block';
+            const cr = document.getElementById('boxplot-container').getBoundingClientRect();
+            tip.style.left = (event.clientX - cr.left + 12) + 'px';
+            tip.style.top = (event.clientY - cr.top - 40) + 'px';
+          })
+          .on('mouseleave', function() {
+            d3.select(this).attr('r', r).attr('fill-opacity', opacity);
+            tip.style.display = 'none';
+          });
+      }
     }
   }
 }
@@ -1227,12 +1264,13 @@ async function loadSankey() {
     const data = await r.json();
     const totalCalls = data.links ? data.links.reduce((s, l) => s + l.value, 0) : 0;
     if (!data.nodes || !data.links || data.links.length === 0 || totalCalls < 5) {
-      container.innerHTML = '<div class="upgrade-msg">Not enough data yet (minimum 5 calls needed)<span class="docs-hint">New to RADAR? <a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
+      container.style.display = 'none';
       return;
     }
+    container.style.display = '';
     renderSankey(data);
   } catch (e) {
-    container.innerHTML = '<div class="upgrade-msg">No data yet<span class="docs-hint">New to RADAR? <a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
+    container.style.display = 'none';
     console.error('Sankey error', e);
   }
 }
@@ -1272,34 +1310,41 @@ function renderSankey(data) {
 
   const main = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-  // Build sankey with auto layout first, then override positions
-  const nodeMap = {};
-  data.nodes.forEach((n, i) => { nodeMap[n.id] = i; n.index = i; });
-
+  // Build sankey — backend returns {name} nodes with numeric source/target indices
+  // Normalize: add id field from name, detect column from connectivity
+  const nodes = data.nodes.map((n, i) => ({ ...n, id: n.name, index: i }));
   const links = data.links.map(l => ({
-    source: nodeMap[l.source], target: nodeMap[l.target], value: l.value, tier: l.tier
-  }));
+    source: typeof l.source === 'number' ? l.source : l.source,
+    target: typeof l.target === 'number' ? l.target : l.target,
+    value: l.value
+  })).filter(l => l.value > 0);
 
-  const sankey = d3.sankey().nodeId(d => d.index).nodeWidth(nodeW).nodePadding(18).extent([[0, 0], [width, height]]);
-  const graph = sankey({ nodes: data.nodes.map(d => ({ ...d })), links });
+  // Identify column membership: tiers and outcomes by name
+  const tierNames = ['T0','T1','T2','T3','T4'];
+  const outcomeNames = ['PROCEED','HOLD','DENY','ESCALATED'];
+  for (const n of nodes) {
+    if (tierNames.includes(n.id)) n.column = 1;
+    else if (outcomeNames.includes(n.id)) n.column = 2;
+    else n.column = 0;
+  }
+
+  const sankey = d3.sankey().nodeId(d => d.index).nodeWidth(nodeW).nodePadding(14).extent([[0, 0], [width, height]]);
+  const graph = sankey({ nodes, links });
 
   // Override x positions to force 3 columns
-  const tierIds = ['t1','t2','t3','t4'];
-  const outcomeIds = ['proceeded','held','escalated'];
   for (const node of graph.nodes) {
     const w = node.x1 - node.x0;
-    if (node.id === 'actions') { node.x0 = col1X; node.x1 = col1X + w; }
-    else if (tierIds.includes(node.id)) { node.x0 = col2X; node.x1 = col2X + w; }
-    else if (outcomeIds.includes(node.id)) { node.x0 = col3X; node.x1 = col3X + w; }
+    if (node.column === 0) { node.x0 = col1X; node.x1 = col1X + w; }
+    else if (node.column === 1) { node.x0 = col2X; node.x1 = col2X + w; }
+    else if (node.column === 2) { node.x0 = col3X; node.x1 = col3X + w; }
   }
-  // Recalculate link paths after position override
   sankey.update(graph);
 
-  const tierColors = { 1: '#4ade80', 2: '#60a5fa', 3: '#fbbf24', 4: '#f87171' };
+  const tierColors = { 'T1': '#4ade80', 'T2': '#60a5fa', 'T3': '#fbbf24', 'T4': '#f87171', 'T0': '#909090' };
   const sTip = document.getElementById('sankey-tooltip');
 
-  // Compute total for percentages
-  const totalCalls = graph.nodes.find(n => n.id === 'actions')?.value || 1;
+  // Compute total for percentages — sum of all source-side links
+  const totalCalls = graph.links.reduce((s, l) => s + l.value, 0) / 2 || 1;
 
   function showSTip(event, html) {
     sTip.innerHTML = html;
@@ -1314,58 +1359,55 @@ function renderSankey(data) {
   main.append('g').selectAll('rect').data(graph.nodes).join('rect')
     .attr('x', d => d.x0).attr('y', d => d.y0).attr('height', d => Math.max(1, d.y1 - d.y0)).attr('width', d => d.x1 - d.x0)
     .attr('fill', d => {
-      if (d.id === 'actions') return '#c4943a';
-      if (tierColors[d.tier]) return tierColors[d.tier];
-      if (d.id === 'proceeded') return '#4ade80';
-      if (d.id === 'held') return '#555';
-      if (d.id === 'escalated') return '#f87171';
+      if (tierColors[d.id]) return tierColors[d.id];
+      if (d.id === 'PROCEED') return '#4ade80';
+      if (d.id === 'HOLD') return '#c4943a';
+      if (d.id === 'DENY') return '#f87171';
+      if (d.id === 'ESCALATED') return '#f87171';
       return '#909090';
     }).attr('rx', 2).attr('cursor', 'pointer')
     .on('mouseenter', function(event, d) {
       const pct = (d.value / totalCalls * 100).toFixed(1);
-      let label = d.label || d.id;
-      if (d.id === 'actions') label = label.replace(/^Actions assessed/, 'Scored');
-      showSTip(event, `<strong>${label}</strong><br>${d.value} calls &middot; ${pct}% of total`);
+      showSTip(event, `<strong>${d.id}</strong><br>${d.value} calls &middot; ${pct}%`);
       d3.select(this).attr('opacity', 0.8);
     })
     .on('mousemove', function(event) { showSTip(event, sTip.innerHTML); })
     .on('mouseleave', function() { hideSTip(); d3.select(this).attr('opacity', 1); });
 
-  // Links — colour by outcome, with tooltips
+  // Links — colour by source tier or outcome
   main.append('g').attr('fill', 'none').selectAll('path').data(graph.links).join('path')
     .attr('d', d3.sankeyLinkHorizontal())
     .attr('stroke', d => {
-      const targetId = d.target.id;
-      if (targetId === 'held') return '#555555';
-      if (targetId === 'escalated') return '#7f1d1d';
-      return tierColors[d.tier] || '#909090';
+      const srcId = d.source.id;
+      const tgtId = d.target.id;
+      if (tgtId === 'HOLD') return '#c4943a55';
+      if (tgtId === 'DENY') return '#f8717155';
+      if (tierColors[srcId]) return tierColors[srcId];
+      if (tierColors[tgtId]) return tierColors[tgtId];
+      return '#909090';
     })
     .attr('stroke-width', d => Math.max(1, d.width))
     .attr('stroke-opacity', 0.45)
     .attr('cursor', 'pointer')
     .on('mouseenter', function(event, d) {
       const pct = (d.value / totalCalls * 100).toFixed(1);
-      const src = d.source.label || d.source.id;
-      const tgt = d.target.label || d.target.id;
-      showSTip(event, `<strong>${src} &rarr; ${tgt}</strong><br>${d.value} calls &middot; ${pct}% of total`);
+      showSTip(event, `<strong>${d.source.id} &rarr; ${d.target.id}</strong><br>${d.value} calls &middot; ${pct}%`);
       d3.select(this).attr('stroke-opacity', 0.7);
     })
     .on('mousemove', function(event) { showSTip(event, sTip.innerHTML); })
     .on('mouseleave', function() { hideSTip(); d3.select(this).attr('stroke-opacity', 0.45); });
 
-  // Labels — outside nodes, with subtitles for score ranges
-  const tierSubtitles = { t1: 'score 1\u20134', t2: 'score 5\u20139', t3: 'score 10\u201316', t4: 'score 17\u201325' };
+  // Labels
+  const tierSubtitles = { 'T1': 'proceed', 'T2': 'consult', 'T3': 'deliberate', 'T4': 'escalate' };
 
   const labelG = main.append('g');
   for (const d of graph.nodes) {
-    const isLeft = d.id === 'actions';
+    const isLeft = d.column === 0;
     const x = isLeft ? d.x0 - 8 : d.x1 + 8;
     const y = (d.y0 + d.y1) / 2;
     const anchor = isLeft ? 'end' : 'start';
 
-    // Main label — rename "Actions assessed" to "Scored"
-    let mainLabel = d.label;
-    if (d.id === 'actions') mainLabel = mainLabel.replace(/^Actions assessed/, 'Scored');
+    let mainLabel = d.id;
 
     const pct = (d.value / totalCalls * 100).toFixed(0);
 
@@ -1882,12 +1924,18 @@ async function loadLlmConfig() {
     const r = await fetch(`${BASE}/dashboard/llm-config`, { headers: authHeaders() });
     const d = await r.json();
     if (d.provider) document.getElementById('llm-provider').value = d.provider;
-    if (d.api_key_set) document.getElementById('llm-api-key').placeholder = 'Key configured (hidden)';
-    if (d.t2Provider && d.t2Provider !== d.provider) {
-      document.getElementById('t2-provider').value = d.t2Provider;
+    if (d.api_key_set) {
+      document.getElementById('llm-api-key').placeholder = 'Key configured (hidden)';
+      document.getElementById('no-llm-warning').style.display = 'none';
+    } else {
+      document.getElementById('no-llm-warning').style.display = 'block';
+    }
+    const t2p = d.t2Provider || d.t2_provider;
+    if (t2p && t2p !== d.provider) {
+      document.getElementById('t2-provider').value = t2p;
       document.getElementById('t2-key-wrap').style.display = 'flex';
     }
-    if (d.t2_api_key_set) document.getElementById('t2-api-key').placeholder = 'Key configured (hidden)';
+    if (d.t2_api_key_set || d.t2ApiKeySet) document.getElementById('t2-api-key').placeholder = 'Key configured (hidden)';
     updateModelLabels();
   } catch (e) {}
 }
@@ -1923,7 +1971,7 @@ async function saveLlmConfig() {
     });
     statusEl.style.color = '#4ade80';
     statusEl.textContent = 'Saved';
-    if (llmKey) { document.getElementById('llm-api-key').value = ''; document.getElementById('llm-api-key').placeholder = 'Key configured (hidden)'; }
+    if (llmKey) { document.getElementById('llm-api-key').value = ''; document.getElementById('llm-api-key').placeholder = 'Key configured (hidden)'; document.getElementById('no-llm-warning').style.display = 'none'; }
     if (t2Key) { document.getElementById('t2-api-key').value = ''; document.getElementById('t2-api-key').placeholder = 'Key configured (hidden)'; }
     updateModelLabels();
     setTimeout(() => { statusEl.textContent = ''; }, 2000);

@@ -2,12 +2,14 @@ import initSqlJs from 'sql.js';
 import { createHash, randomBytes } from 'crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 
 let db = null;
 let dbPath = null;
+let SQL = null;
 
 function getDbPath() {
-  const dir = join(process.cwd(), '.radar');
+  const dir = join(homedir(), '.radar');
   mkdirSync(dir, { recursive: true });
   return join(dir, 'register.db');
 }
@@ -19,10 +21,19 @@ function persistDb() {
   }
 }
 
+export async function reload() {
+  if (db) {
+    // Persist any pending writes before reloading
+    persistDb();
+  }
+  db = null;
+  return ensureDb();
+}
+
 async function ensureDb() {
   if (db) return db;
 
-  const SQL = await initSqlJs();
+  if (!SQL) SQL = await initSqlJs();
   dbPath = getDbPath();
 
   if (existsSync(dbPath)) {
@@ -45,12 +56,14 @@ async function ensureDb() {
       vela_overridden INTEGER,
       policy_decision TEXT,
       radar_enabled INTEGER DEFAULT 1,
+      agent_id TEXT,
       created_at TEXT NOT NULL
     )
   `);
   // Migrations for older schemas
   try { db.run('ALTER TABLE assessments ADD COLUMN radar_enabled INTEGER DEFAULT 1'); } catch (e) {}
   try { db.run("ALTER TABLE assessments ADD COLUMN strategy_scope TEXT DEFAULT 'single'"); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN agent_id TEXT'); } catch (e) {}
   db.run('CREATE INDEX IF NOT EXISTS idx_activity ON assessments(activity_type)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tier ON assessments(tier)');
   db.run('CREATE INDEX IF NOT EXISTS idx_created ON assessments(created_at)');
@@ -127,8 +140,8 @@ function singleValue(result) {
 export async function save(assessment) {
   const db = await ensureDb();
   db.run(
-    `INSERT INTO assessments (id, action_hash, activity_type, tier, risk_score, verdict, policy_decision, radar_enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO assessments (id, action_hash, activity_type, tier, risk_score, verdict, policy_decision, radar_enabled, agent_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       assessment.callId,
       assessment.actionHash,
@@ -138,10 +151,18 @@ export async function save(assessment) {
       assessment.verdict,
       assessment.policyDecision || 'assess',
       assessment.radarEnabled !== undefined ? (assessment.radarEnabled ? 1 : 0) : 1,
+      assessment.agentId || null,
       new Date().toISOString()
     ]
   );
   persistDb();
+}
+
+export async function clear() {
+  const db = await ensureDb();
+  db.run('DELETE FROM assessments');
+  persistDb();
+  return { cleared: true };
 }
 
 export async function history(limit = 100) {

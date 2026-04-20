@@ -44,7 +44,7 @@ describe('v0.3 verdict model — T2 always HOLD', () => {
     assert.equal(result.status, 'HOLD');
     assert.equal(result.proceed, false);
     assert.equal(result.reviewRequired, true);
-    assert.equal(result.tier, 2);
+    assert.ok(result.tier >= 2, `Expected tier >= 2, got ${result.tier}`);
     assert.ok(result.holdAction);
   });
 

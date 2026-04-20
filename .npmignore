@@ -9,3 +9,5 @@ node_modules/
 *.db-journal
 *.db-wal
 *.db-shm
+RADAR-PACKAGE-SESSION-HANDOFF.md
+SESSION_HANDOFF.md

@@ -388,6 +388,7 @@ RADAR Lite is a pre-action assessment layer. It evaluates a described action and
 | N8N | Use Code node to call `assess()`, or wrap as HTTP endpoint | Medium | Medium–High | Partial | Low-code friction — requires Code node or a local HTTP wrapper. If wired as a conditional branch (HOLD → stop), enforcement is strong. |
 | Python agents (CrewAI, AutoGen, etc.) | Not supported natively (JS package). Requires HTTP service wrapper or Python port. | Low | Depends on implementation | Not supported | Would need `radar-lite` running as a local HTTP service that Python calls. Enforceability depends on how the wrapper is integrated. |
 | Claude Code (via MCP) | MCP server wrapping `assess()` as a tool Claude calls before actions | Medium | Low | Experimental | See below. |
+| OpenClaw | [`@essentianlabs/openclaw-radar`](https://www.npmjs.com/package/@essentianlabs/openclaw-radar) — RADAR plugin for OpenClaw agents | Easy | High | Supported | Native integration. |
 
 ### Claude Code and MCP
 
@@ -403,6 +404,88 @@ RADAR does not intercept or block actions by itself. It returns a verdict. Enfor
 
 In MCP and tool-based integrations, enforcement relies on model behaviour and prompt design, not on technical controls. A model that ignores a HOLD verdict will proceed regardless. For stronger guarantees, enforcement must be implemented outside the model — in the orchestration layer, the tool execution framework, or the application code that wraps the agent.
 
+## HTTP API (local)
+
+The dashboard server exposes a local HTTP API for integrations that cannot import the npm package directly (n8n, Python agents, curl, etc.).
+
+Start the server first:
+
+```bash
+npx radar-lite dashboard
+```
+
+**POST http://localhost:4040/assess**
+
+```json
+{
+  "action": "Send price increase email to 50,000 users",
+  "activityType": "email_bulk",
+  "agentId": "my-agent"
+}
+```
+
+Returns the full assessment result object (status, verdict, riskScore, options, etc.).
+
+**POST http://localhost:4040/strategy**
+
+```json
+{
+  "callId": "ra_xxxxxxxxxxxx",
+  "strategy": "mitigate",
+  "justification": "staged rollout approved",
+  "decidedBy": "human"
+}
+```
+
+Returns `{ success: true, callId }`.
+
+The server is bound to `127.0.0.1` only — not accessible from the network. Start the dashboard server before calling these endpoints. The server does not auto-start when radar-lite is installed as a package dependency.
+
+### Setting up LLM keys for HTTP users
+
+If you're using the HTTP API (Python, n8n, curl) rather than importing the package directly, configure your LLM keys in `~/.radar/.env`:
+
+```
+LLM_PROVIDER=anthropic
+LLM_API_KEY=sk-ant-your-key-here
+T2_PROVIDER=openai
+T2_API_KEY=sk-your-openai-key-here
+```
+
+Or configure via the dashboard Settings tab after starting the server.
+
+### Running the server persistently
+
+For production use, run the dashboard server as a background process so HTTP integrations can reach it reliably:
+
+```bash
+# Using pm2
+pm2 start npx --name radar-lite -- radar-lite dashboard
+
+# Or using nohup
+nohup npx radar-lite dashboard > /dev/null 2>&1 &
+```
+
+### Health check
+
+Before making HTTP calls, verify the server is running:
+
+```bash
+curl http://localhost:4040/api/health
+# Returns: {"status":"ok","version":"1.0.0"}
+```
+
+In Python:
+
+```python
+import requests
+
+try:
+    requests.get('http://localhost:4040/api/health', timeout=2)
+except requests.ConnectionError:
+    print("Start the server first: npx radar-lite dashboard")
+```
+
 ## Dashboard
 
 ```bash
@@ -414,9 +497,140 @@ Opens a local dashboard at `http://localhost:4040` showing your risk register.
 ## CLI
 
 ```bash
+npx radar-lite dashboard  # open local dashboard
+npx radar-lite demo       # seed sample data and view
 npx radar-lite stats      # tier counts, hold rate
 npx radar-lite history    # last 10 assessments
+npx radar-lite reset      # clear all assessment records
+npx radar-lite backup     # backup .radar/ directory
 npx radar-lite version    # package version
+```
+
+## Integration cookbook
+
+### Node.js agent (native)
+
+```javascript
+import radar from '@essentianlabs/radar-lite';
+
+radar.configure({
+  llmKey: process.env.ANTHROPIC_API_KEY,
+  llmProvider: 'anthropic'
+});
+
+async function executeAction(action, type) {
+  const result = await radar.assess(action, type);
+
+  if (result.status === 'DENY') {
+    console.log('Blocked:', result.reason);
+    return;
+  }
+
+  if (result.status === 'HOLD') {
+    console.log('Held:', result.triggerReason);
+    console.log('Options:', result.options);
+    console.log('Recommended:', result.recommended);
+    // Wait for human decision before proceeding
+    return;
+  }
+
+  // PROCEED — execute the action
+  await doTheAction(action);
+}
+```
+
+### LangChain (JavaScript)
+
+```javascript
+import { DynamicTool } from '@langchain/core/tools';
+import radar from '@essentianlabs/radar-lite';
+
+radar.configure({
+  llmKey: process.env.ANTHROPIC_API_KEY,
+  llmProvider: 'anthropic'
+});
+
+// Create a RADAR gate tool
+const radarTool = new DynamicTool({
+  name: 'radar_assess',
+  description: 'Assess risk before taking any action',
+  func: async (input) => {
+    const { action, activityType } = JSON.parse(input);
+    const result = await radar.assess(action, activityType);
+    return JSON.stringify(result);
+  }
+});
+
+// Add radarTool to your agent's tool list
+```
+
+### Python (via HTTP API)
+
+Start the dashboard server first: `npx radar-lite dashboard`
+
+```python
+import requests
+
+def assess_action(action: str, activity_type: str, agent_id: str = None):
+    response = requests.post('http://localhost:4040/assess', json={
+        'action': action,
+        'activityType': activity_type,
+        'agentId': agent_id
+    })
+    result = response.json()
+
+    if not result['proceed']:
+        print(f"RADAR: {result['status']} — {result.get('triggerReason')}")
+        if result.get('options'):
+            print(f"Recommended: {result['recommended']}")
+        return None
+
+    return result
+
+# Usage
+result = assess_action(
+    'Send newsletter to 50,000 subscribers',
+    'email_bulk',
+    'my-python-agent'
+)
+```
+
+### Python LangChain (via HTTP API)
+
+```python
+from langchain.tools import tool
+import requests
+
+@tool
+def radar_assess(action: str, activity_type: str) -> str:
+    """Assess risk of an action before executing it."""
+    response = requests.post('http://localhost:4040/assess', json={
+        'action': action,
+        'activityType': activity_type
+    })
+    return str(response.json())
+
+# Add radar_assess to your agent's tools list
+```
+
+### n8n (HTTP Request node)
+
+1. Start the server: `npx radar-lite dashboard`
+2. Add an **HTTP Request** node:
+   - Method: POST
+   - URL: `http://localhost:4040/assess`
+   - Body: `{ "action": "{{$json.action}}", "activityType": "email_bulk" }`
+3. Add an **IF** node after it:
+   - Condition: `{{$json.proceed}}` equals `true`
+   - True branch → execute the action
+   - False branch → send to human review
+
+### curl
+
+```bash
+curl -X POST http://localhost:4040/assess \
+  -H "Content-Type: application/json" \
+  -d '{"action": "Delete all user records", "activityType": "data_delete_bulk"}'
 ```
 
 ## LLM providers
