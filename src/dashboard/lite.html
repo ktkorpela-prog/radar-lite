@@ -136,9 +136,12 @@
   .tier-2 { background: #1a2a4a; color: #ffffff; }
   .tier-3 { background: #4a3a1a; color: #ffffff; }
   .tier-4 { background: #4a1a1a; color: #ffffff; }
+  .tier-bypass { background: #2a2a2a; color: #909090; border: 1px dashed #555; }
   .verdict-hold { color: #fbbf24; font-weight: 600; }
   .verdict-proceed { color: #4ade80; font-weight: 600; }
   .verdict-deny { color: #f87171; font-weight: 600; }
+  .verdict-bypass { color: #909090; font-weight: 600; font-style: italic; }
+  tr.bypass-row td { opacity: 0.65; }
   .call-row.deny-row { border-left: 3px solid #f87171; }
   .call-row.deny-overridden { border-left: 3px solid #fbbf24; }
   .deny-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 700; background: #4a1a1a; color: #f87171; }
@@ -385,7 +388,12 @@
     <div class="tab" onclick="switchTab('settings')">Settings</div>
   </div>
 
-  <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:500;text-align:center">RADAR assessment is disabled. All actions are proceeding without evaluation.</div>
+  <div id="radar-disabled-banner" style="display:none;background:#4a3a1a;border:1px solid #fbbf24;color:#fbbf24;padding:12px 20px;margin-bottom:16px;border-radius:6px;font-size:13px;font-weight:600;text-align:center">&#9888; RADAR is currently DISABLED. All actions are proceeding without assessment. Bypass events are being logged.</div>
+
+  <div id="filter-banner" style="display:none;background:#1a1a1a;border:1px solid #c4943a;border-left:3px solid #c4943a;padding:10px 16px;margin-bottom:16px;border-radius:4px;font-size:13px;color:#f0ede8;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <span id="filter-banner-text"></span>
+    <a href="#" onclick="clearAllFilters();return false" style="color:#c4943a;text-decoration:none;font-size:12px;font-weight:500">Clear filters &times;</a>
+  </div>
 
   <!-- Overview -->
   <div class="tab-panel active" id="panel-overview">
@@ -393,6 +401,15 @@
       <label>Agent:</label>
       <select class="agent-select" id="agent-select-overview" onchange="onAgentFilter(this.value)">
         <option value="">All Agents</option>
+      </select>
+      <span style="color:#2a2a2a;margin:0 4px">|</span>
+      <label>Date:</label>
+      <select class="agent-select" id="date-filter-overview" onchange="onDateFilter(this.value)" style="min-width:160px">
+        <option value="">All time</option>
+        <option value="1">Today</option>
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30">Last 30 days</option>
       </select>
       <button class="agent-clear" id="agent-clear-btn" onclick="clearAgentFilter()" style="display:none" title="Clear filter">&times;</button>
     </div>
@@ -403,7 +420,8 @@
       <div class="stat-card t2"><div class="label">T2</div><div class="value" id="stat-t2">0</div></div>
       <div class="stat-card t3"><div class="label">T3</div><div class="value" id="stat-t3">0</div></div>
       <div class="stat-card t4"><div class="label">T4</div><div class="value" id="stat-t4">0</div></div>
-      <div class="stat-card"><div class="label">Policy/Bypass</div><div class="value" id="stat-policy" style="color:#909090">0</div><div class="sublabel" style="font-size:10px;color:#666;margin-top:2px">unscored</div></div>
+      <div class="stat-card"><div class="label">Policy</div><div class="value" id="stat-policy" style="color:#909090">0</div><div class="sublabel" style="font-size:10px;color:#666;margin-top:2px">unscored</div></div>
+      <div class="stat-card" id="stat-card-bypass" style="display:none"><div class="label" style="color:#fbbf24">Bypassed</div><div class="value" id="stat-bypass" style="color:#fbbf24">0</div><div class="sublabel" style="font-size:10px;color:#666;margin-top:2px">RADAR disabled</div></div>
       <div class="stat-card"><div class="label">This Month</div><div class="value" id="stat-month" style="color:#c4943a">0</div></div>
     </div>
 
@@ -532,6 +550,8 @@ let selectedDays = '';
 let allStatsCache = null;
 let allPerDayByAgent = null;
 let lastPerDayByAgent = null;
+let unfilteredTotal = null;
+let pollTimer = null;
 
 function authHeaders(extra) {
   const h = {};
@@ -555,10 +575,27 @@ function enterDashboard() {
     document.getElementById('plan-badge').textContent = 'LITE';
     document.getElementById('plan-badge').className = 'plan-badge plan-free';
     document.getElementById('user-email').textContent = 'local';
+    // Restore last filter selection from sessionStorage (default: All Agents / All time)
+    const savedAgent = sessionStorage.getItem('radar_lite_agent') || '';
+    const savedDays = sessionStorage.getItem('radar_lite_days') || '';
+    selectedAgent = savedAgent;
+    selectedDays = savedDays;
+    const dOv = document.getElementById('date-filter-overview');
+    const dCa = document.getElementById('date-filter');
+    if (dOv) dOv.value = savedDays;
+    if (dCa) dCa.value = savedDays;
     loadAgents();
     loadStats();
     loadSettings();
     checkRadarEnabled();
+    // Poll every 15s — refresh agents (catch new agent_ids), stats, and disabled banner
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      loadAgents();
+      loadStats();
+      checkRadarEnabled();
+      if (document.getElementById('panel-calls').classList.contains('active')) loadCalls();
+    }, 15000);
   }, 400);
 }
 
@@ -835,15 +872,20 @@ function populateAgentDropdowns() {
   }
   ['agent-select-overview', 'agent-select-calls'].forEach(id => {
     const sel = document.getElementById(id);
+    if (!sel) return;
     sel.innerHTML = '<option value="">All Agents</option>';
     for (const [name, a] of mergedAgents) {
       sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${a.count} calls)</option>`;
     }
+    // Preserve current selection if the agent still exists
+    if (selectedAgent && mergedAgents.has(selectedAgent)) sel.value = selectedAgent;
+    else sel.value = '';
   });
 }
 
 function onAgentFilter(agentId) {
   selectedAgent = agentId;
+  sessionStorage.setItem('radar_lite_agent', agentId);
   // Sync both dropdowns
   document.getElementById('agent-select-overview').value = agentId;
   document.getElementById('agent-select-calls').value = agentId;
@@ -870,6 +912,16 @@ function onAgentFilter(agentId) {
 
 function clearAgentFilter() { onAgentFilter(''); }
 
+function clearAllFilters() {
+  selectedDays = '';
+  sessionStorage.removeItem('radar_lite_days');
+  const dOv = document.getElementById('date-filter-overview');
+  const dCa = document.getElementById('date-filter');
+  if (dOv) dOv.value = '';
+  if (dCa) dCa.value = '';
+  onAgentFilter('');
+}
+
 function agentParam() {
   const parts = [];
   if (selectedAgent) parts.push(`agent_id=${encodeURIComponent(selectedAgent)}`);
@@ -879,7 +931,35 @@ function agentParam() {
 
 function onDateFilter(days) {
   selectedDays = days;
-  loadCalls();
+  sessionStorage.setItem('radar_lite_days', days);
+  // Sync both date dropdowns
+  const dOv = document.getElementById('date-filter-overview');
+  const dCa = document.getElementById('date-filter');
+  if (dOv) dOv.value = days;
+  if (dCa) dCa.value = days;
+  loadStats();
+  if (document.getElementById('panel-calls').classList.contains('active')) loadCalls();
+}
+
+const DATE_LABELS = { '': 'All time', '1': 'Today', '7': 'Last 7 days', '14': 'Last 14 days', '30': 'Last 30 days' };
+
+function updateFilterBanner(filteredCount) {
+  const banner = document.getElementById('filter-banner');
+  const txt = document.getElementById('filter-banner-text');
+  const total = unfilteredTotal != null ? unfilteredTotal : null;
+  const parts = [];
+  if (selectedAgent) parts.push(`agent: <strong style="color:#c4943a">${selectedAgent || 'Unidentified'}</strong>`);
+  if (selectedDays) parts.push(`date range: <strong style="color:#c4943a">${DATE_LABELS[selectedDays] || ('Last ' + selectedDays + ' days')}</strong>`);
+  if (parts.length === 0) {
+    banner.style.display = 'none';
+    return;
+  }
+  let counts = '';
+  if (total != null && filteredCount != null) {
+    counts = ` &mdash; showing <strong>${filteredCount}</strong> of <strong>${total}</strong>`;
+  }
+  txt.innerHTML = 'Filtered by ' + parts.join(' &middot; ') + counts;
+  banner.style.display = 'flex';
 }
 
 // ─── Stats ───
@@ -888,16 +968,30 @@ async function loadStats() {
     const r = await fetch(`${BASE}/dashboard/stats${agentParam()}`, { headers: authHeaders() });
     const d = await r.json();
     // Cache unfiltered stats for reference line
-    if (!selectedAgent) allStatsCache = d;
+    if (!selectedAgent && !selectedDays) {
+      allStatsCache = d;
+      unfilteredTotal = d.total_calls;
+    } else if (unfilteredTotal == null) {
+      // Fetch unfiltered total in background to populate banner
+      try {
+        const r2 = await fetch(`${BASE}/dashboard/stats`, { headers: authHeaders() });
+        const d2 = await r2.json();
+        unfilteredTotal = d2.total_calls;
+      } catch (e) {}
+    }
 
     document.getElementById('stat-total').textContent = d.total_calls;
     document.getElementById('stat-t1').textContent = d.by_tier[1] || 0;
     document.getElementById('stat-t2').textContent = d.by_tier[2] || 0;
     document.getElementById('stat-t3').textContent = d.by_tier[3] || 0;
     document.getElementById('stat-t4').textContent = d.by_tier[4] || 0;
-    const policyCount = (d.by_tier[0] || 0) + (d.disabled || 0);
+    const policyCount = d.by_tier[0] || 0;
+    const bypassCount = d.disabled || 0;
     document.getElementById('stat-policy').textContent = policyCount;
+    document.getElementById('stat-bypass').textContent = bypassCount;
+    document.getElementById('stat-card-bypass').style.display = bypassCount > 0 ? '' : 'none';
     document.getElementById('stat-month').textContent = d.calls_this_month || 0;
+    updateFilterBanner(d.total_calls);
 
     // Derive per_day_by_agent from recent calls if backend doesn't provide it
     let perDayByAgent = d.per_day_by_agent;
@@ -1208,6 +1302,8 @@ function renderBoxPlot(perDayByAgent) {
 
 // ─── Tables ───
 function tierBadge(tier) { return `<span class="tier-badge tier-${tier}">T${tier}</span>`; }
+function bypassBadge() { return `<span class="tier-badge tier-bypass">BYPASSED</span>`; }
+function isBypass(c) { return c.radar_enabled === 0 || c.radar_enabled === false; }
 
 function renderRecentTable(calls) {
   if (!calls || !calls.length) {
@@ -1216,11 +1312,17 @@ function renderRecentTable(calls) {
   }
   let html = '<table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
   for (const c of calls) {
+    const bypass = isBypass(c);
     const time = new Date(c.created_at).toLocaleString();
-    const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
+    const verdict = bypass
+      ? `<span class="verdict-bypass">BYPASSED</span>`
+      : (c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—');
     const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
     const agent = c.agent_id ? `<span class="agent-link" onclick="onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
-    html += `<tr><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+    const tierCell = bypass ? bypassBadge() : tierBadge(c.tier);
+    const scoreCell = bypass ? '—' : (c.risk_score != null ? c.risk_score : '—');
+    const rowCls = bypass ? 'bypass-row' : '';
+    html += `<tr class="${rowCls}"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById('recent-table').innerHTML = html;
@@ -1236,8 +1338,11 @@ async function loadCalls() {
     let html = '<div class="table-container"><table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Action</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Models</th><th>Vela</th><th>Outcome</th><th>Response</th></tr></thead><tbody>';
     for (let i = 0; i < d.calls.length; i++) {
       const c = d.calls[i];
+      const bypass = isBypass(c);
       const time = new Date(c.created_at).toLocaleString();
-      const verdict = c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—';
+      const verdict = bypass
+        ? `<span class="verdict-bypass">BYPASSED</span>`
+        : (c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—');
       const models = (c.models_consulted || []).join(', ') || '—';
       const vela = c.vela_consulted ? `<span class="vela-badge">Vela</span>` : '—';
       const outcome = renderOutcomeCell(c, i);
@@ -1245,10 +1350,12 @@ async function loadCalls() {
       const action = c.tldr?.action ? truncate(c.tldr.action, 50) : truncate(c.activity_type, 50);
       const agent = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
       const vUpper = (c.verdict || '').toString().trim().toUpperCase();
-      const isRowHold = vUpper === 'HOLD';
-      const isRowDeny = vUpper === 'DENY';
-      const holdCls = isRowDeny ? (c.deny_overridden ? ' deny-overridden' : ' deny-row') : (isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : '');
-      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierBadge(c.tier)}</td><td class="mono">${c.risk_score}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      const isRowHold = !bypass && vUpper === 'HOLD';
+      const isRowDeny = !bypass && vUpper === 'DENY';
+      const holdCls = bypass ? ' bypass-row' : (isRowDeny ? (c.deny_overridden ? ' deny-overridden' : ' deny-row') : (isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : ''));
+      const tierCell = bypass ? bypassBadge() : tierBadge(c.tier);
+      const scoreCell = bypass ? '—' : (c.risk_score != null ? c.risk_score : '—');
+      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
       html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
     }
     html += '</tbody></table></div>';
