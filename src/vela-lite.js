@@ -1,5 +1,5 @@
 import { callLLM, DEFAULT_PROVIDER } from './providers.js';
-import { VALID_STRATEGIES, T1_LABEL, T2_LABEL } from './constants.js';
+import { HOLD_STRATEGIES, T1_LABEL, T2_LABEL } from './constants.js';
 
 export const VelaLite = {
   profile: Object.freeze({
@@ -11,8 +11,20 @@ export const VelaLite = {
   })
 };
 
-const STRATEGIES_UPPER = VALID_STRATEGIES.map(s => s.toUpperCase());
-const STRATEGIES_REGEX = new RegExp(`^→\\s*(${STRATEGIES_UPPER.join('|')}):\\s*(.+)`, 'i');
+// Only HOLD_STRATEGIES are valid as Vela-offered options on a HOLD verdict.
+// override_deny is excluded — it is a DENY override mechanism, not a HOLD strategy.
+const HOLD_STRATEGIES_UPPER = HOLD_STRATEGIES.map(s => s.toUpperCase());
+// Permissive regex captures any label (including OVERRIDE_DENY hallucinations) — whitelist applied after parse.
+const STRATEGIES_REGEX = /^→\s*([A-Z_]+):\s*(.+)/i;
+
+// Normalise a label for whitelist comparison: lowercase + strip non-alphanumeric.
+// Catches: OVERRIDE_DENY, override-deny, "Override Deny", OVERRIDEDENY → "overridedeny"
+//          AVOID, "Avoid", avoid → "avoid"
+function normaliseLabel(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const HOLD_STRATEGIES_NORMALISED = new Set(HOLD_STRATEGIES.map(normaliseLabel));
 
 function buildOnelinerPrompt(priorDecision) {
   let priorLine = '';
@@ -31,7 +43,7 @@ No other text. No explanation.`;
 }
 
 function buildTldrPrompt(sliderPosition, priorDecision) {
-  const strategyLines = STRATEGIES_UPPER
+  const strategyLines = HOLD_STRATEGIES_UPPER
     .map(s => `→ ${s}:     {one concrete action, max 12 words}{recommended_marker}`)
     .join('\n');
 
@@ -47,11 +59,13 @@ Give a fast, actionable risk response. No lengthy analysis. No regulatory citati
 
 Risk appetite slider: ${sliderPosition} (0.0 = permissive, 0.5 = balanced, 1.0 = conservative)
 
-Strategy definitions — use these exactly:
+Strategy definitions — use these EXACTLY four. Do not invent additional strategies.
 AVOID = do not take this action at all — block it entirely
 MITIGATE = take the action but add specific controls to reduce risk
 TRANSFER = delegate the risk to a third party (vendor, legal, compliance)
 ACCEPT = proceed as-is, document the decision and accept accountability
+
+The four strategies above are the complete taxonomy for a HOLD verdict. Output exactly four option lines — one for each. Do not output a fifth option under any label.
 
 Return ONLY this exact format, nothing else:
 
@@ -111,6 +125,7 @@ function parseTldrResponse(raw) {
   let recommended = null;
   let parseFailed = false;
   const options = {};
+  const droppedLabels = [];
 
   for (const line of lines) {
     if (line.startsWith('PROCEED')) verdict = 'PROCEED';
@@ -118,14 +133,52 @@ function parseTldrResponse(raw) {
 
     const optionMatch = line.match(STRATEGIES_REGEX);
     if (optionMatch) {
-      const key = optionMatch[1].toLowerCase();
+      const rawLabel = optionMatch[1];
+      const normalised = normaliseLabel(rawLabel);
+      const lineHasRecommendedMarker = optionMatch[2].includes('(recommended)');
+
+      // Whitelist: drop any option whose label is not in HOLD_STRATEGIES.
+      // This catches OVERRIDE_DENY, override-deny, "Override Deny", OVERRIDEDENY,
+      // and any other label the LLM hallucinates. Load-bearing — the prompt is helpful
+      // but probabilistic; the whitelist is the contract.
+      if (!HOLD_STRATEGIES_NORMALISED.has(normalised)) {
+        droppedLabels.push(rawLabel);
+        // If (recommended) marker was on a dropped line, mark it so fallback knows
+        // to pick a valid option rather than leaving recommended null.
+        if (lineHasRecommendedMarker) recommended = '__dropped_recommended__';
+        continue;
+      }
+
+      const key = normalised;
       let value = optionMatch[2].trim();
-      if (value.includes('(recommended)')) {
+      if (lineHasRecommendedMarker) {
         recommended = key;
         value = value.replace(/\s*\(recommended\)\s*/i, '').trim();
       }
       options[key] = value;
     }
+  }
+
+  if (droppedLabels.length > 0) {
+    // Verbose-only — never returned to caller. M7 sanitisation pattern.
+    console.warn(`[radar-lite verbose] Dropped ${droppedLabels.length} non-whitelist option label(s) from Vela response: ${droppedLabels.join(', ')}`);
+  }
+
+  // Fallback: if recommended is invalid (or was OVERRIDE_DENY before normalisation,
+  // or the (recommended) marker was on a dropped line), pick first valid option in
+  // the array, or 'mitigate' as last resort.
+  if (recommended !== null && !HOLD_STRATEGIES_NORMALISED.has(recommended)) {
+    const before = recommended;
+    const validKeys = Object.keys(options);
+    recommended = validKeys.length > 0 ? validKeys[0] : 'mitigate';
+    console.warn(`[radar-lite verbose] Vela recommended invalid strategy "${before}" — fallback to "${recommended}"`);
+  }
+
+  // If options object is empty entirely and we have a HOLD verdict, fallback to mitigate
+  // so the calling agent gets a usable verdict.
+  if (verdict === 'HOLD' && Object.keys(options).length === 0 && recommended === null) {
+    recommended = 'mitigate';
+    console.warn(`[radar-lite verbose] Vela returned no valid HOLD options — fallback recommended=mitigate`);
   }
 
   if (verdict === null) {
@@ -142,6 +195,9 @@ function parseTldrResponse(raw) {
     parseFailed
   };
 }
+
+// Exposed for test access only — not part of the public API.
+export const _testInternals = { parseTldrResponse, normaliseLabel, HOLD_STRATEGIES_NORMALISED };
 
 export async function assessVela(action, activityType, riskScore, triggerReason, sliderPosition, mode, config, priorDecision = null) {
   const systemPrompt = mode === 'oneliner'

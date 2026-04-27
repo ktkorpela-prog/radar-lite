@@ -1,6 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { VelaLite } from '../src/vela-lite.js';
+import { VelaLite, _testInternals } from '../src/vela-lite.js';
+
+const { parseTldrResponse, normaliseLabel } = _testInternals;
 
 describe('Vela Lite profile', () => {
 
@@ -173,5 +175,119 @@ describe('v0.3 — RADAR disabled', () => {
     assert.equal(result.proceed, true);
     assert.equal(result.radarEnabled, false);
     delete process.env.RADAR_ENABLED;
+  });
+});
+
+describe('v0.3.4 OVERRIDE_DENY filter — parseTldrResponse', () => {
+
+  it('drops OVERRIDE_DENY when LLM returns 5 options', () => {
+    const raw = `HOLD — Mass deletion requires review
+
+→ AVOID:     Block the deletion entirely
+→ MITIGATE:  Run a dry-run first (recommended)
+→ TRANSFER:  Route through compliance team
+→ ACCEPT:    Proceed with full audit log
+→ OVERRIDE_DENY: Restrict access to sensitive repos
+
+— Vela Lite`;
+    const r = parseTldrResponse(raw);
+    assert.equal(r.verdict, 'HOLD');
+    assert.equal(Object.keys(r.options).length, 4, 'options should have exactly 4 keys');
+    assert.ok(!('override_deny' in r.options), 'override_deny must not appear in options');
+    assert.ok(!('overridedeny' in r.options), 'overridedeny must not appear in options');
+    assert.equal(r.recommended, 'mitigate');
+  });
+
+  it('drops OVERRIDE_DENY when LLM returns it instead of one valid strategy', () => {
+    const raw = `HOLD — Risky write
+
+→ AVOID:     Block it
+→ MITIGATE:  Add controls (recommended)
+→ OVERRIDE_DENY: Disallow without sign-off
+→ ACCEPT:    Proceed as-is
+
+— Vela Lite`;
+    const r = parseTldrResponse(raw);
+    assert.equal(Object.keys(r.options).length, 3);
+    assert.ok('avoid' in r.options);
+    assert.ok('mitigate' in r.options);
+    assert.ok('accept' in r.options);
+    assert.ok(!('override_deny' in r.options));
+    assert.equal(r.recommended, 'mitigate');
+  });
+
+  it('falls back to first valid option when recommended is OVERRIDE_DENY', () => {
+    const raw = `HOLD — Bad
+
+→ AVOID:     Stop now
+→ MITIGATE:  Add audit
+→ TRANSFER:  Route to legal
+→ ACCEPT:    Proceed
+→ OVERRIDE_DENY: Disallow (recommended)
+
+— Vela Lite`;
+    const r = parseTldrResponse(raw);
+    assert.ok(!('override_deny' in r.options));
+    // recommended must be one of the four valid HOLD strategies
+    assert.ok(['avoid', 'mitigate', 'transfer', 'accept'].includes(r.recommended),
+      `recommended should be a valid HOLD strategy, got "${r.recommended}"`);
+  });
+
+  it('falls back to mitigate when LLM returns ONLY OVERRIDE_DENY', () => {
+    const raw = `HOLD — Bad
+
+→ OVERRIDE_DENY: Block all migrations (recommended)
+
+— Vela Lite`;
+    const r = parseTldrResponse(raw);
+    assert.equal(r.verdict, 'HOLD');
+    assert.equal(Object.keys(r.options).length, 0);
+    assert.equal(r.recommended, 'mitigate', 'should fall back to mitigate');
+  });
+
+  it('catches case variants: override-deny, Override Deny, OVERRIDEDENY', () => {
+    const raw = `HOLD — test
+
+→ AVOID:     A
+→ override-deny: lowercase variant
+→ Override Deny: title case
+→ OVERRIDEDENY: no separator
+→ MITIGATE:  M (recommended)
+→ TRANSFER:  T
+→ ACCEPT:    Acc
+
+— Vela Lite`;
+    const r = parseTldrResponse(raw);
+    assert.equal(Object.keys(r.options).length, 4, 'all override_deny variants should be dropped');
+    assert.ok(!Object.keys(r.options).some(k => normaliseLabel(k) === 'overridedeny'));
+    assert.equal(r.recommended, 'mitigate');
+  });
+
+  it('does not match partial substrings — AVOIDANCE is dropped', () => {
+    const raw = `HOLD — test
+
+→ AVOIDANCE: not a real strategy
+→ AVOID:     real one (recommended)
+→ MITIGATE:  m
+→ TRANSFER:  t
+→ ACCEPT:    a
+
+— Vela Lite`;
+    const r = parseTldrResponse(raw);
+    assert.equal(Object.keys(r.options).length, 4);
+    assert.ok('avoid' in r.options);
+    assert.ok(!Object.keys(r.options).some(k => k.includes('avoidance')));
+    assert.equal(r.recommended, 'avoid');
+  });
+
+  it('normaliseLabel handles all expected variants', () => {
+    assert.equal(normaliseLabel('OVERRIDE_DENY'), 'overridedeny');
+    assert.equal(normaliseLabel('override_deny'), 'overridedeny');
+    assert.equal(normaliseLabel('OVERRIDE-DENY'), 'overridedeny');
+    assert.equal(normaliseLabel('override-deny'), 'overridedeny');
+    assert.equal(normaliseLabel('Override Deny'), 'overridedeny');
+    assert.equal(normaliseLabel('AVOID'), 'avoid');
+    assert.equal(normaliseLabel('Avoid'), 'avoid');
+    assert.equal(normaliseLabel(' AVOID '), 'avoid');
   });
 });

@@ -1,6 +1,13 @@
 export const DEFAULT_SLIDER = 0.5;
 export const DEFAULT_PROVIDER = 'anthropic';
-export const VALID_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept', 'override_deny'];
+
+// Strategies Vela offers on a HOLD verdict — exactly four. Single source of truth.
+export const HOLD_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept'];
+
+// All strategies accepted by radar.strategy() — HOLD strategies plus override_deny for DENY override path.
+// override_deny is a deliberate human action, NOT a Vela-offered option.
+export const VALID_STRATEGIES = [...HOLD_STRATEGIES, 'override_deny'];
+
 export const T1_LABEL = 'VELA LITE (T1)';
 export const T2_LABEL = 'VELA LITE (T2)';
 
