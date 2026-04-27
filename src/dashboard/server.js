@@ -362,6 +362,9 @@ export function startDashboard(port = 4040) {
       const allCalls = await register.history(10000);
       const withFeedback = allCalls.filter(c => c.chosen_strategy);
 
+      // outcomes drives follow_rate (a behavioural metric, not an accuracy claim).
+      // vela_overridden=1 means the operator chose a different strategy than Vela
+      // recommended — including legitimate override_deny actions on DENY verdicts.
       const outcomes = { followed: 0, overridden: 0, escalated: 0, deferred: 0 };
       for (const c of withFeedback) {
         if (c.vela_overridden) outcomes.overridden++;
@@ -371,12 +374,17 @@ export function startDashboard(port = 4040) {
       const total = withFeedback.length;
       const followRate = total > 0 ? outcomes.followed / total : null;
 
+      // The package has no mechanism to collect vela_accuracy ratings.
+      // breakdown is intentionally null — honest empty state, not a derived rate.
+      // The previous vela_accuracy_rate was an alias of follow_rate, which conflated
+      // "operator overrode Vela" with "Vela was wrong" and was misleading at any
+      // sample size. Removed in v0.3.5 (see CHANGELOG-RADAR-PACKAGE.md).
       res.json({
+        total,
+        breakdown: null,
         total_with_feedback: total,
         follow_rate: followRate,
-        vela_accuracy_rate: followRate,
         outcomes,
-        vela_accuracy: { accurate: outcomes.followed, inaccurate: outcomes.overridden },
         by_tier: {}
       });
     } catch (err) {
