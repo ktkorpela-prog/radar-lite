@@ -554,11 +554,17 @@ export function startDashboard(port = 4040) {
     res.json({ success: true, enabled: !!enabled });
   });
 
-  // --- Update check (disabled by default — opt-in via .radar/.env UPDATE_CHECK=true) ---
+  // --- Update check (enabled by default since v0.3.6 — opt-out via UPDATE_CHECK=false) ---
+  // Reasoning: testers who installed weeks ago and hit fixed bugs need to be told
+  // updates are available. Silent staleness produced the env-staleness footgun
+  // (Jeremy 2026-04-28). Default flipped to surface available updates by default.
+  // Privacy: only contacts npm registry (no telemetry to EssentianLabs); user can
+  // opt out by setting UPDATE_CHECK=false in ~/.radar/.env.
 
   app.get('/dashboard/update-check-enabled', (req, res) => {
     const env = readEnv();
-    const enabled = (env.UPDATE_CHECK || process.env.UPDATE_CHECK || 'false').toLowerCase() === 'true';
+    const raw = (env.UPDATE_CHECK || process.env.UPDATE_CHECK || 'true').toLowerCase();
+    const enabled = raw !== 'false';
     res.json({ enabled });
   });
 
@@ -574,7 +580,7 @@ export function startDashboard(port = 4040) {
 
   app.get('/dashboard/update-check', async (req, res) => {
     const env = readEnv();
-    const checkEnabled = (env.UPDATE_CHECK || process.env.UPDATE_CHECK || 'false').toLowerCase() === 'true';
+    const checkEnabled = (env.UPDATE_CHECK || process.env.UPDATE_CHECK || 'true').toLowerCase() !== 'false';
 
     // Read local update metadata
     const metaPath = join(__dirname, '..', 'update-meta.json');
