@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
-import { timingSafeEqual } from 'crypto';
+import { timingSafeEqual, randomBytes } from 'crypto';
 import * as register from '../register.js';
 import { assess, strategy as recordStrat, reload, configure } from '../index.js';
 import { VelaLite } from '../vela-lite.js';
@@ -42,6 +42,40 @@ function writeEnv(env) {
   const envPath = getEnvPath();
   const lines = Object.entries(env).map(([k, v]) => `${k}=${v}`);
   writeFileSync(envPath, lines.join('\n') + '\n', 'utf-8');
+}
+
+// Session token for write-endpoint auth when DASHBOARD_PASSWORD is configured.
+// Generated fresh on each server start (in-memory only, never persisted).
+// Issued to the frontend on successful password verification, sent back as
+// X-Dashboard-Token on write requests. When no password is configured, writes
+// are open (current behaviour preserved).
+const sessionToken = randomBytes(32).toString('hex');
+
+// Middleware: gate write endpoints with token check when password is configured.
+// No-op when DASHBOARD_PASSWORD is unset (current behaviour for password-less
+// installs). When set, requires X-Dashboard-Token header matching the session token.
+function requireSessionToken(req, res, next) {
+  const env = readEnv();
+  const password = env.DASHBOARD_PASSWORD || process.env.DASHBOARD_PASSWORD || '';
+  if (!password) return next(); // password not configured — writes open as before
+
+  const provided = String(req.header('X-Dashboard-Token') || '');
+  if (!provided) return res.status(401).json({ error: 'X-Dashboard-Token required' });
+
+  // Timing-safe comparison
+  const expected = Buffer.from(sessionToken, 'utf-8');
+  const got = Buffer.from(provided, 'utf-8');
+  if (got.length !== expected.length) {
+    // Pad to equal length to keep timing constant
+    const padded = Buffer.alloc(expected.length);
+    got.copy(padded);
+    timingSafeEqual(expected, padded);
+    return res.status(401).json({ error: 'Invalid session token' });
+  }
+  if (!timingSafeEqual(expected, got)) {
+    return res.status(401).json({ error: 'Invalid session token' });
+  }
+  next();
 }
 
 // Simple in-memory rate limiter — prevents runaway loops from racking up LLM costs
@@ -308,7 +342,7 @@ export function startDashboard(port = 4040) {
   });
 
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
-  app.post('/dashboard/agents/update', async (req, res) => {
+  app.post('/dashboard/agents/update', requireSessionToken, async (req, res) => {
     // Agent registration is stored in-memory for Lite — no persistent agent config table
     res.json({ success: true });
   });
@@ -406,7 +440,7 @@ export function startDashboard(port = 4040) {
   });
 
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
-  app.post('/radar/config', async (req, res) => {
+  app.post('/radar/config', requireSessionToken, async (req, res) => {
     try {
       const { activities, human_review, hold_actions, notify_urls } = req.body;
       if (activities) {
@@ -453,6 +487,7 @@ export function startDashboard(port = 4040) {
     const stored = env.DASHBOARD_PASSWORD || process.env.DASHBOARD_PASSWORD || '';
 
     if (!stored) {
+      // No password configured — return valid: true and no token (writes are open)
       return res.json({ valid: true });
     }
 
@@ -470,7 +505,11 @@ export function startDashboard(port = 4040) {
     }
 
     const valid = timingSafeEqual(storedBuf, submittedBuf);
-    res.json({ valid });
+    if (valid) {
+      // Issue session token — frontend stores it and sends as X-Dashboard-Token on writes
+      return res.json({ valid: true, token: sessionToken });
+    }
+    res.json({ valid: false });
   });
 
   app.get('/dashboard/llm-config', (req, res) => {
@@ -491,7 +530,7 @@ export function startDashboard(port = 4040) {
   });
 
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
-  app.post('/dashboard/llm-config', (req, res) => {
+  app.post('/dashboard/llm-config', requireSessionToken, (req, res) => {
     const { provider, api_key, t2_provider, t2_api_key } = req.body;
 
     if (!provider || !VALID_PROVIDERS.includes(provider)) {
@@ -545,7 +584,7 @@ export function startDashboard(port = 4040) {
   });
 
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
-  app.post('/dashboard/radar-enabled', (req, res) => {
+  app.post('/dashboard/radar-enabled', requireSessionToken, (req, res) => {
     const { enabled } = req.body;
     const env = readEnv();
     env.RADAR_ENABLED = enabled ? 'true' : 'false';
@@ -569,7 +608,7 @@ export function startDashboard(port = 4040) {
   });
 
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
-  app.post('/dashboard/update-check-enabled', (req, res) => {
+  app.post('/dashboard/update-check-enabled', requireSessionToken, (req, res) => {
     const { enabled } = req.body;
     const env = readEnv();
     env.UPDATE_CHECK = enabled ? 'true' : 'false';

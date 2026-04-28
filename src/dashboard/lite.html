@@ -560,6 +560,11 @@ let pollTimer = null;
 function authHeaders(extra) {
   const h = {};
   if (apiKey) h['Authorization'] = 'Bearer ' + apiKey;
+  // Session token issued by /dashboard/verify-password — required on write
+  // endpoints when DASHBOARD_PASSWORD is configured. Stored in sessionStorage,
+  // cleared on logout / browser tab close.
+  const token = sessionStorage.getItem('radar_lite_token');
+  if (token) h['X-Dashboard-Token'] = token;
   if (extra) Object.assign(h, extra);
   return h;
 }
@@ -623,7 +628,8 @@ async function toggleRadarEnabled(enabled) {
   }
   try {
     await fetch(`${BASE}/dashboard/radar-enabled`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ enabled })
     });
     checkRadarEnabled();
@@ -668,6 +674,9 @@ async function verifyKey() {
     const d = await r.json();
     if (d.valid) {
       sessionStorage.setItem('radar_lite_auth', 'true');
+      // Token issued only when DASHBOARD_PASSWORD is configured;
+      // otherwise writes are open and no token is needed.
+      if (d.token) sessionStorage.setItem('radar_lite_token', d.token);
       statusEl.className = 'auth-status-msg ok';
       statusEl.textContent = 'Authenticated \u2014 loading dashboard...';
       btn.textContent = '\u2713 Verified';
@@ -691,6 +700,7 @@ async function verifyKey() {
 
 function logout() {
   sessionStorage.removeItem('radar_lite_auth');
+  sessionStorage.removeItem('radar_lite_token');
   apiKey = null;
   document.getElementById('dashboard').style.display = 'none';
   const gate = document.getElementById('auth-gate');
@@ -879,7 +889,7 @@ function populateAgentDropdowns() {
     if (!sel) return;
     sel.innerHTML = '<option value="">All Agents</option>';
     for (const [name, a] of mergedAgents) {
-      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${a.count} calls)</option>`;
+      sel.innerHTML += `<option value="${esc(a.agent_id || '')}">${esc(name)} (${esc(a.count)} calls)</option>`;
     }
     // Preserve current selection if the agent still exists
     if (selectedAgent && mergedAgents.has(selectedAgent)) sel.value = selectedAgent;
@@ -1251,10 +1261,10 @@ function renderBoxPlot(perDayByAgent) {
       .on('click', () => onAgentFilter(a.agentId || ''))
       .on('mouseenter', function(event) {
         d3.select(this).attr('fill', a.color + '60').attr('stroke', a.color);
-        tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>` +
-          `<span style="color:#fff">Total: ${a.total} calls</span><br>` +
-          `<span style="color:#909090">${a.activeDays} active day${a.activeDays !== 1 ? 's' : ''} · ` +
-          `Avg: ${a.avg.toFixed(1)}/day · Max: ${a.max}/day · Med: ${a.median}/day</span>`;
+        tip.innerHTML = `<strong style="color:${a.color}">${esc(a.agentId || 'Unidentified')}</strong><br>` +
+          `<span style="color:#fff">Total: ${esc(a.total)} calls</span><br>` +
+          `<span style="color:#909090">${esc(a.activeDays)} active day${a.activeDays !== 1 ? 's' : ''} · ` +
+          `Avg: ${esc(a.avg.toFixed(1))}/day · Max: ${esc(a.max)}/day · Med: ${esc(a.median)}/day</span>`;
         tip.style.display = 'block';
         const cr = document.getElementById('boxplot-container').getBoundingClientRect();
         tip.style.left = (event.clientX - cr.left + 12) + 'px';
@@ -1289,7 +1299,7 @@ function renderBoxPlot(perDayByAgent) {
           .on('click', () => onAgentFilter(a.agentId || ''))
           .on('mouseenter', function(event) {
             d3.select(this).attr('r', r + 2).attr('fill-opacity', 1);
-            tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}`;
+            tip.innerHTML = `<strong style="color:${a.color}">${esc(a.agentId || 'Unidentified')}</strong><br>${esc(val)} calls on ${esc(dayLabels[di])}`;
             tip.style.display = 'block';
             const cr = document.getElementById('boxplot-container').getBoundingClientRect();
             tip.style.left = (event.clientX - cr.left + 12) + 'px';
@@ -1560,7 +1570,7 @@ function renderSankey(data) {
 
 // ─── Helpers ───
 function truncate(str, len) { if (!str) return '—'; return str.length > len ? str.slice(0, len) + '…' : str; }
-function esc(str) { if (!str) return ''; return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;'); }
 
 function toggleExpand(i) {
   const row = document.getElementById('expand-' + i);
