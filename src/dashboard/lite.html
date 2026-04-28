@@ -1349,13 +1349,13 @@ function renderRecentTable(calls) {
     const time = new Date(c.created_at).toLocaleString();
     const verdict = bypass
       ? `<span class="verdict-bypass">BYPASSED</span>`
-      : (c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—');
+      : (c.verdict ? `<span class="verdict-${esc(c.verdict.toLowerCase())}">${esc(c.verdict.toUpperCase())}</span>` : '—');
     const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
     const agent = c.agent_id ? `<span class="agent-link" onclick="onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
     const tierCell = bypass ? bypassBadge() : tierBadge(c.tier);
     const scoreCell = bypass ? '—' : (c.risk_score != null ? c.risk_score : '—');
     const rowCls = bypass ? 'bypass-row' : '';
-    html += `<tr class="${rowCls}"><td class="mono" style="font-size:12px">${time}</td><td>${callIdCell(c.call_id || c.id)}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+    html += `<tr class="${rowCls}"><td class="mono" style="font-size:12px">${esc(time)}</td><td>${callIdCell(c.call_id || c.id)}</td><td>${agent}</td><td>${esc(c.activity_type)}</td><td class="trunc">${trigger}</td><td>${tierCell}</td><td class="mono">${esc(scoreCell)}</td><td>${verdict}</td><td class="mono">${esc(c.response_time_ms || 0)}ms</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById('recent-table').innerHTML = html;
@@ -1375,11 +1375,12 @@ async function loadCalls() {
       const time = new Date(c.created_at).toLocaleString();
       const verdict = bypass
         ? `<span class="verdict-bypass">BYPASSED</span>`
-        : (c.verdict ? `<span class="verdict-${c.verdict.toLowerCase()}">${c.verdict.toUpperCase()}</span>` : '—');
+        : (c.verdict ? `<span class="verdict-${esc(c.verdict.toLowerCase())}">${esc(c.verdict.toUpperCase())}</span>` : '—');
       const models = (c.models_consulted || []).join(', ') || '—';
       const vela = c.vela_consulted ? `<span class="vela-badge">Vela</span>` : '—';
       const outcome = renderOutcomeCell(c, i);
       const trigger = c.trigger_reason ? truncate(c.trigger_reason, 40) : '—';
+      const rawAction = c.tldr?.action || c.activity_type || '';
       const action = c.tldr?.action ? truncate(c.tldr.action, 50) : truncate(c.activity_type, 50);
       const agent = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '—';
       const vUpper = (c.verdict || '').toString().trim().toUpperCase();
@@ -1388,7 +1389,7 @@ async function loadCalls() {
       const holdCls = bypass ? ' bypass-row' : (isRowDeny ? (c.deny_overridden ? ' deny-overridden' : ' deny-row') : (isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : ''));
       const tierCell = bypass ? bypassBadge() : tierBadge(c.tier);
       const scoreCell = bypass ? '—' : (c.risk_score != null ? c.risk_score : '—');
-      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${callIdCell(c.call_id || c.id)}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${esc(time)}</td><td>${callIdCell(c.call_id || c.id)}</td><td>${agent}</td><td>${esc(c.activity_type)}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(rawAction)}">${action}</td><td>${tierCell}</td><td class="mono">${esc(scoreCell)}</td><td>${verdict}</td><td style="font-size:12px">${esc(models)}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${esc(c.response_time_ms || 0)}ms</td></tr>`;
       html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
     }
     html += '</tbody></table></div>';
@@ -1569,7 +1570,7 @@ function renderSankey(data) {
 }
 
 // ─── Helpers ───
-function truncate(str, len) { if (!str) return '—'; return str.length > len ? str.slice(0, len) + '…' : str; }
+function truncate(str, len) { if (str == null || str === '') return '—'; const s = String(str); const trimmed = s.length > len ? s.slice(0, len) + '…' : s; return esc(trimmed); }
 function esc(str) { if (str == null) return ''; return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;'); }
 
 function toggleExpand(i) {
@@ -1578,12 +1579,14 @@ function toggleExpand(i) {
 }
 
 function renderExpandedRow(c, idx) {
-  const triggerFull = c.trigger_reason || '<span class="muted">No trigger reason recorded</span>';
-  const assessment = c.full_assessment || c.vela_reasoning || '<span class="muted">No assessment available</span>';
+  const triggerFull = c.trigger_reason ? esc(c.trigger_reason) : '<span class="muted">No trigger reason recorded</span>';
+  const assessmentRaw = c.full_assessment || c.vela_reasoning;
+  const assessment = assessmentRaw ? esc(assessmentRaw) : '<span class="muted">No assessment available</span>';
   const assumptions = c.assumptions
     ? '<ul style="margin:0;padding-left:16px">' + c.assumptions.map(a => `<li>${esc(a)}</li>`).join('') + '</ul>'
     : '<span class="muted">Not yet available</span>';
-  const models = (c.models_consulted || []).join(', ') || '—';
+  const models = esc((c.models_consulted || []).join(', ') || '—');
+  const callIdSafe = esc(c.call_id || '');
   const velaTag = c.vela_consulted ? '<span class="vela-badge">Vela consulted</span>' : '<span style="color:#555">Vela not consulted</span>';
   const agentTag = c.agent_id ? `<span class="agent-link" onclick="event.stopPropagation();onAgentFilter('${esc(c.agent_id)}')">${esc(c.agent_id)}</span>` : '<span style="color:#555">No agent</span>';
   const verdictUp = (c.verdict || '').toString().trim().toUpperCase();
@@ -1612,7 +1615,8 @@ function renderExpandedRow(c, idx) {
     const chosen = c.chosen_action || c.feedback?.chosen_action;
     if (chosen) {
       const ts = c.action_timestamp ? new Date(c.action_timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
-      holdActionHtml = `<div class="hold-recorded">&#10003; ${chosen.charAt(0).toUpperCase() + chosen.slice(1)}${ts ? ' — ' + ts : ''}</div>`;
+      const chosenSafe = esc(String(chosen).charAt(0).toUpperCase() + String(chosen).slice(1));
+      holdActionHtml = `<div class="hold-recorded">&#10003; ${chosenSafe}${ts ? ' — ' + esc(ts) : ''}</div>`;
     } else {
       holdActionHtml = `<div class="hold-action-row" id="hold-action-${idx}">
         <label>What do you want to do?</label>
@@ -1622,7 +1626,7 @@ function renderExpandedRow(c, idx) {
           <option value="accept">Accept — accept the risk and proceed</option>
           <option value="notify">Notify — send to configured webhook</option>
         </select>
-        <button class="hold-confirm-btn" onclick="event.stopPropagation();confirmHoldAction(${idx},'${c.call_id}')">Confirm</button>
+        <button class="hold-confirm-btn" onclick="event.stopPropagation();confirmHoldAction(${idx},'${callIdSafe}')">Confirm</button>
       </div>`;
     }
   }
@@ -1659,10 +1663,10 @@ function renderExpandedRow(c, idx) {
   if (!isHold && !isDeny && !c.feedback) {
     feedbackHtml = `<div style="margin-top:12px;padding-top:12px;border-top:1px solid #2a2a2a">
       <span style="color:#8a8a8a;font-size:11px;margin-right:8px">Rate outcome:</span>
-      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'followed')">Followed</button>
-      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'overridden')">Overridden</button>
-      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'escalated')">Escalated</button>
-      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${c.call_id}',${idx},'deferred')">Deferred</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${callIdSafe}',${idx},'followed')">Followed</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${callIdSafe}',${idx},'overridden')">Overridden</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${callIdSafe}',${idx},'escalated')">Escalated</button>
+      <button class="fb-btn" onclick="event.stopPropagation();submitFeedback('${callIdSafe}',${idx},'deferred')">Deferred</button>
     </div>`;
   }
 
