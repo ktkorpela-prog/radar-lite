@@ -137,6 +137,9 @@
   .tier-3 { background: #4a3a1a; color: #ffffff; }
   .tier-4 { background: #4a1a1a; color: #ffffff; }
   .tier-bypass { background: #2a2a2a; color: #909090; border: 1px dashed #555; }
+  .call-id-link { font-family: 'SF Mono','Cascadia Code','Consolas',monospace; font-size: 11px; color: #c0bdb8; background: #161616; border: 1px solid #2a2a2a; padding: 2px 6px; border-radius: 3px; cursor: pointer; transition: all 0.15s; }
+  .call-id-link:hover { color: #c4943a; border-color: #c4943a; background: #1a1a1a; }
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1a1a1a; border: 1px solid #c4943a; color: #c4943a; padding: 10px 18px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono','Cascadia Code',monospace; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 9999; }
   .verdict-hold { color: #fbbf24; font-weight: 600; }
   .verdict-proceed { color: #4ade80; font-weight: 600; }
   .verdict-deny { color: #f87171; font-weight: 600; }
@@ -365,6 +368,7 @@
 </div>
 
 <!-- Dashboard -->
+<div id="toast"></div>
 <div id="dashboard">
   <div class="header">
     <div>
@@ -1305,12 +1309,31 @@ function tierBadge(tier) { return `<span class="tier-badge tier-${tier}">T${tier
 function bypassBadge() { return `<span class="tier-badge tier-bypass">BYPASSED</span>`; }
 function isBypass(c) { return c.radar_enabled === 0 || c.radar_enabled === false; }
 
+function copyCallId(callId, ev) {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  if (!callId) return;
+  navigator.clipboard.writeText(callId).then(() => {
+    const t = document.getElementById('toast');
+    if (!t) return;
+    t.textContent = 'Copied: ' + callId;
+    t.style.opacity = '1';
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => { t.style.opacity = '0'; }, 1800);
+  }).catch(() => {});
+}
+
+function callIdCell(callId) {
+  if (!callId) return '—';
+  const safe = esc(callId);
+  return `<code class="call-id-link" onclick="copyCallId('${safe}',event)" title="Click to copy: ${safe}">${safe}</code>`;
+}
+
 function renderRecentTable(calls) {
   if (!calls || !calls.length) {
     document.getElementById('recent-table').innerHTML = '<div class="upgrade-msg">No calls yet<span class="docs-hint">New to RADAR? <a href="https://radar.essentianlabs.com/docs.html">Read the docs &rarr;</a></span></div>';
     return;
   }
-  let html = '<table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Time</th><th>Call ID</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Response</th></tr></thead><tbody>';
   for (const c of calls) {
     const bypass = isBypass(c);
     const time = new Date(c.created_at).toLocaleString();
@@ -1322,7 +1345,7 @@ function renderRecentTable(calls) {
     const tierCell = bypass ? bypassBadge() : tierBadge(c.tier);
     const scoreCell = bypass ? '—' : (c.risk_score != null ? c.risk_score : '—');
     const rowCls = bypass ? 'bypass-row' : '';
-    html += `<tr class="${rowCls}"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+    html += `<tr class="${rowCls}"><td class="mono" style="font-size:12px">${time}</td><td>${callIdCell(c.call_id || c.id)}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc">${trigger}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
   }
   html += '</tbody></table>';
   document.getElementById('recent-table').innerHTML = html;
@@ -1334,8 +1357,8 @@ async function loadCalls() {
     const r = await fetch(`${BASE}/dashboard/calls${agentParam()}`, { headers: authHeaders() });
     const d = await r.json();
     callsData = d.calls;
-    const colCount = 13;
-    let html = '<div class="table-container"><table><thead><tr><th>Time</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Action</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Models</th><th>Vela</th><th>Outcome</th><th>Response</th></tr></thead><tbody>';
+    const colCount = 14;
+    let html = '<div class="table-container"><table><thead><tr><th>Time</th><th>Call ID</th><th>Agent</th><th>Activity</th><th>Trigger</th><th>Action</th><th>Tier</th><th>Score</th><th>Verdict</th><th>Models</th><th>Vela</th><th>Outcome</th><th>Response</th></tr></thead><tbody>';
     for (let i = 0; i < d.calls.length; i++) {
       const c = d.calls[i];
       const bypass = isBypass(c);
@@ -1355,7 +1378,7 @@ async function loadCalls() {
       const holdCls = bypass ? ' bypass-row' : (isRowDeny ? (c.deny_overridden ? ' deny-overridden' : ' deny-row') : (isRowHold ? (c.chosen_action ? (c.chosen_action === 'accept' ? ' hold-actioned' : ' hold-halted') : ' hold-row') : ''));
       const tierCell = bypass ? bypassBadge() : tierBadge(c.tier);
       const scoreCell = bypass ? '—' : (c.risk_score != null ? c.risk_score : '—');
-      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
+      html += `<tr class="call-row${holdCls}" onclick="toggleExpand(${i})"><td class="mono" style="font-size:12px">${time}</td><td>${callIdCell(c.call_id || c.id)}</td><td>${agent}</td><td>${c.activity_type}</td><td class="trunc" title="${esc(c.trigger_reason || '')}">${trigger}</td><td class="trunc" title="${esc(action)}">${action}</td><td>${tierCell}</td><td class="mono">${scoreCell}</td><td>${verdict}</td><td style="font-size:12px">${models}</td><td>${vela}</td><td>${outcome}</td><td class="mono">${c.response_time_ms}ms</td></tr>`;
       html += `<tr class="expand-row" id="expand-${i}" style="display:none"><td colspan="${colCount}">${renderExpandedRow(c, i)}</td></tr>`;
     }
     html += '</tbody></table></div>';
@@ -1758,16 +1781,43 @@ async function submitAccuracy(callId, idx, velaAccuracy) {
 }
 
 // ─── Accuracy ───
+function renderVelaAccuracyCard(d) {
+  // Accept new shape { total, breakdown } or legacy shape { vela_accuracy: {...} }
+  const breakdown = d.breakdown || d.vela_accuracy || {};
+  const total = d.total != null ? d.total : Object.values(breakdown).reduce((s, v) => s + (v || 0), 0);
+  const labels = [
+    ['accurate', 'Accurate'],
+    ['too_cautious', 'Too cautious'],
+    ['under_cautious', 'Under cautious'],
+    ['wrong_assessment', 'Wrong assessment']
+  ];
+  if (!total || total === 0) {
+    return `<div class="accuracy-card">
+      <div class="label">Vela accuracy <span style="color:#8a8a8a;text-transform:none;letter-spacing:0">(no ratings yet)</span></div>
+      <div style="color:#8a8a8a;font-size:12px;margin-top:10px;line-height:1.5">Operator feedback not collected on this register.</div>
+    </div>`;
+  }
+  let rows = '';
+  for (const [key, lbl] of labels) {
+    const n = breakdown[key] || 0;
+    rows += `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid #1a1a1a"><span style="color:#c0bdb8">${lbl}</span><span class="mono" style="color:#ffffff;font-weight:600">${n}</span></div>`;
+  }
+  return `<div class="accuracy-card">
+    <div class="label">Vela accuracy <span style="color:#8a8a8a;text-transform:none;letter-spacing:0">(${total} rating${total !== 1 ? 's' : ''})</span></div>
+    <div style="margin-top:8px">${rows}</div>
+  </div>`;
+}
+
 async function loadAccuracy() {
   const panel = document.getElementById('accuracy-panel');
   try {
     const r = await fetch(`${BASE}/dashboard/accuracy${agentParam()}`, { headers: authHeaders() });
     const d = await r.json();
-    if (!d.total_with_feedback || d.total_with_feedback === 0) { panel.innerHTML = ''; return; }
+    const totalFb = d.total_with_feedback || 0;
+    const accuracyCard = renderVelaAccuracyCard(d);
+    if (!totalFb && !d.total) { panel.innerHTML = `<div class="accuracy-grid">${accuracyCard}</div>`; return; }
     const followPct = d.follow_rate != null ? (d.follow_rate * 100).toFixed(0) + '%' : '—';
-    const accPct = d.vela_accuracy_rate != null ? (d.vela_accuracy_rate * 100).toFixed(0) + '%' : '—';
     const followColor = d.follow_rate >= 0.7 ? '#4ade80' : d.follow_rate >= 0.4 ? '#fbbf24' : '#f87171';
-    const accColor = d.vela_accuracy_rate >= 0.7 ? '#4ade80' : d.vela_accuracy_rate >= 0.4 ? '#fbbf24' : '#f87171';
     let tierHtml = '';
     for (const [tier, data] of Object.entries(d.by_tier || {})) {
       const fRate = data.total > 0 ? ((data.followed / data.total) * 100).toFixed(0) + '%' : '—';
@@ -1775,8 +1825,8 @@ async function loadAccuracy() {
       tierHtml += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px"><span>${tier}</span><span>Follow: ${fRate}</span><span>Accurate: ${aRate}</span><span style="color:#8a8a8a">${data.total} rated</span></div>`;
     }
     panel.innerHTML = `<div class="accuracy-grid">
-      <div class="accuracy-card"><div class="label">Verdict Follow Rate</div><div class="value" style="color:${followColor}">${followPct}</div><div class="sub">${d.outcomes.followed || 0} of ${d.total_with_feedback} followed RADAR's verdict</div></div>
-      <div class="accuracy-card"><div class="label">Vela Accuracy</div><div class="value" style="color:${accColor}">${accPct}</div><div class="sub">${d.vela_accuracy.accurate || 0} rated accurate of ${Object.values(d.vela_accuracy).reduce((s,v)=>s+v,0)} rated</div></div>
+      <div class="accuracy-card"><div class="label">Verdict Follow Rate</div><div class="value" style="color:${followColor}">${followPct}</div><div class="sub">${d.outcomes.followed || 0} of ${totalFb} followed RADAR's verdict</div></div>
+      ${accuracyCard}
       <div class="accuracy-card"><div class="label">Outcomes</div><div style="font-size:12px;margin-top:8px"><span class="outcome-followed">Followed: ${d.outcomes.followed||0}</span> &nbsp;<span class="outcome-overridden">Overridden: ${d.outcomes.overridden||0}</span> &nbsp;<span class="outcome-escalated">Escalated: ${d.outcomes.escalated||0}</span> &nbsp;<span class="outcome-deferred">Deferred: ${d.outcomes.deferred||0}</span></div></div>
       <div class="accuracy-card"><div class="label">By Tier</div><div style="margin-top:8px">${tierHtml || '<span style="color:#8a8a8a;font-size:12px">No data</span>'}</div></div>
     </div>`;

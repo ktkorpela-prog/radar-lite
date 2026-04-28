@@ -67,6 +67,34 @@ function isRadarEnabled() {
   return true;
 }
 
+// Re-read LLM config from ~/.radar/.env on every assess() call.
+// Eliminates the "added my key but RADAR keeps HOLD-ing" footgun:
+// previously LLM keys were captured once at configure() time and never refreshed,
+// so MCP/dashboard processes that started before keys were set in .env would stay
+// stuck until restart. Same pattern as isRadarEnabled() — file read is cheap.
+//
+// Precedence: explicit configure() values win, .env fills in absent values,
+// process.env is the last fallback. Lets developers set keys in code if they
+// prefer, but defaults to honoring file-based config for HTTP/MCP scenarios.
+function getEffectiveLlmConfig() {
+  const fromFile = {};
+  const envPath = join(homedir(), '.radar', '.env');
+  if (existsSync(envPath)) {
+    const content = readFileSync(envPath, 'utf-8');
+    for (const m of content.matchAll(/^([A-Z_]+)\s*=\s*(.*)$/gm)) {
+      fromFile[m[1]] = m[2].trim();
+    }
+  }
+  return {
+    llmKey:      config.llmKey      || fromFile.LLM_API_KEY  || process.env.LLM_API_KEY  || null,
+    llmProvider: config.llmProvider || fromFile.LLM_PROVIDER || process.env.LLM_PROVIDER || DEFAULT_PROVIDER,
+    t2Provider:  config.t2Provider  || fromFile.T2_PROVIDER  || process.env.T2_PROVIDER  || null,
+    t2Key:       config.t2Key       || fromFile.T2_API_KEY   || process.env.T2_API_KEY   || null,
+    activities:  config.activities,
+    logLevel:    config.logLevel
+  };
+}
+
 export async function checkPolicy(action, agentId = null) {
   return register.checkPolicy(action, agentId);
 }
@@ -253,8 +281,12 @@ export async function assess(action, activityType, options = {}) {
     tier, riskScore: scored.riskScore, verdict: 'PENDING', policyDecision: 'assess', agentId
   });
 
+  // Re-read LLM config from .env every call — prevents stale-key footgun
+  // where keys added to .env after MCP/dashboard launch would never be picked up.
+  const effectiveConfig = getEffectiveLlmConfig();
+
   // === NO LLM KEY — rules engine fallback ===
-  if (!config.llmKey) {
+  if (!effectiveConfig.llmKey) {
     const formatted = formatRulesOneliner(scored);
     log('info', `${formatted} (No LLM key — rules engine only)`);
 
@@ -285,7 +317,7 @@ export async function assess(action, activityType, options = {}) {
   try {
     const vela = await assessVela(
       action, scored.activityType, scored.riskScore, scored.triggerReason,
-      sliderPosition, promptMode, config, priorDecision
+      sliderPosition, promptMode, effectiveConfig, priorDecision
     );
 
     log('info', vela.formatted);
