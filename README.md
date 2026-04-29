@@ -676,4 +676,6 @@ This is a model behaviour difference, not a code issue. If your use case require
 
 ## License
 
-MIT — [EssentianLabs](https://essentianlabs.com)
+MIT licensed and free to use. See [LICENSE](LICENSE).
+
+The RADAR client packages — `radar-lite`, `radar-mcp`, `openclaw-radar` — are MIT licensed. The hosted Vela Essentian™ service and supporting infrastructure are proprietary and operated by [EssentianLabs](https://essentianlabs.com).
