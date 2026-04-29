@@ -309,9 +309,11 @@ Each activity type has a slider from `0.0` (permissive) to `1.0` (conservative):
 - **0.4-0.6 balanced**: T2 triggers at score 5
 - **0.7-1.0 conservative**: T2 triggers at score 3
 
+These thresholds are documented because the package is local and inspectable. The full RADAR API uses different calibration and is not directly comparable.
+
 Slider position is resolved in order: SQLite `activity_config` → JS `config.activities` → default 0.5.
 
-**Note:** Vela Lite uses slider-interpolated thresholds that adapt to developer risk appetite. The full RADAR API (paid tier) uses fixed integer tier boundaries (T1=1-4, T2=5-9, T3=10-16, T4=17-25). This is an intentional design difference — Lite gives developers control over sensitivity; the full API enforces standardised tier classification.
+**Note:** Vela Lite uses slider-interpolated thresholds that adapt to developer risk appetite. The full RADAR API (paid tier) uses fixed tier boundaries calibrated for standardised risk assessment, distinct from Lite's slider-driven thresholds.
 
 ## Privacy and data flow
 
@@ -654,11 +656,7 @@ If `t2Provider` is not set, T2 uses the same provider as T1 but with the reasoni
 
 ### Models by tier
 
-| Provider | T1 (fast) | T2 (reasoning) |
-|----------|-----------|----------------|
-| Anthropic | claude-haiku-4-5 | claude-sonnet-4-6 |
-| OpenAI | gpt-4o-mini | gpt-4o |
-| Google | gemini-2.0-flash | gemini-2.0-pro |
+T1 uses your provider's fast model. T2 uses your provider's reasoning model. See `src/providers.js` for currently pinned versions.
 
 ### Cost
 
