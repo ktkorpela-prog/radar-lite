@@ -1,5 +1,5 @@
 import { classify, getThresholds } from './classifier.js';
-import { VelaLite, assessVela } from './vela-lite.js';
+import { VelaLite, assessVela, assessVelaT3T4Review } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
 import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, DENY_SCORE_THRESHOLD, resolveActivityType } from './constants.js';
@@ -65,6 +65,23 @@ function isRadarEnabled() {
     if (match && match[1].trim().toLowerCase() === 'false') return false;
   }
   return true;
+}
+
+// v0.4: T3_T4_REQUIRE_LLM2 — opt-in flag for the strict dual-LLM gate at T3/T4.
+// Default: false (v0.3.x behavior preserved — T3/T4 actions use single-LLM
+// with T2 prompt). When true: T3/T4 actions HOLD with policyDecision='llm2_required'
+// if t2Key is not configured.
+// Planned: default flips to TRUE in v0.5.0 after one release of opt-in.
+// Same per-call .env re-read pattern as isRadarEnabled().
+function isT3T4Llm2Required() {
+  if (process.env.T3_T4_REQUIRE_LLM2 === 'true') return true;
+  const envPath = join(homedir(), '.radar', '.env');
+  if (existsSync(envPath)) {
+    const content = readFileSync(envPath, 'utf-8');
+    const match = content.match(/^T3_T4_REQUIRE_LLM2\s*=\s*(.+)$/m);
+    if (match && match[1].trim().toLowerCase() === 'true') return true;
+  }
+  return false;  // default: opt-in for v0.4.0; will flip in v0.5.0
 }
 
 // Re-read LLM config from ~/.radar/.env on every assess() call.
@@ -345,19 +362,92 @@ export async function assess(action, activityType, options = {}) {
     return withVerdict(_startTime, result);
   }
 
+  // === T3/T4 LLM2 GATE (v0.4) ===
+  // When T3_T4_REQUIRE_LLM2=true (opt-in for v0.4.0; default in v0.5.0+) AND
+  // the user has not configured an LLM2 key, T3/T4 actions HOLD with a clear
+  // 'llm2_required' policyDecision instead of running on a single LLM.
+  // Override path: configure T2 keys, OR set T3_T4_REQUIRE_LLM2=false to
+  // restore v0.3.x single-LLM behavior, OR set the activity slider to permissive.
+  if (tier >= 3 && isT3T4Llm2Required() && !effectiveConfig.t2Key) {
+    log('info', `RADAR | HOLD | T${tier} requires LLM2 review but T2_API_KEY not configured | ${scored.activityType}`);
+    await register.updateVerdict(callId, 'HOLD');
+    return withVerdict(_startTime, {
+      status: 'HOLD', proceed: false, tier,
+      reviewRequired: true,
+      riskScore: scored.riskScore, triggerReason: scored.triggerReason,
+      activityType: scored.activityType, callId,
+      vela: null, options: null, recommended: null,
+      reason: `Score ${scored.riskScore}/25 reached T${tier} threshold. Dual LLM required for high-risk assessment. Configure T2_PROVIDER and T2_API_KEY in ~/.radar/.env to enable T3/T4 review, or set T3_T4_REQUIRE_LLM2=false to keep v0.3.x single-LLM behavior, or set this activity's slider to permissive if intentional.`,
+      promptMode: null, t2Attempted: false,
+      wouldEscalate, escalateTier,
+      parseFailed: false, policyDecision: 'llm2_required',
+      radarEnabled: true,
+      holdAction, notifyUrl
+    });
+  }
+
   // === VELA LITE ===
+  // Dispatch:
+  //   tier >= 3 AND has t2Key → v0.4 dual-LLM review (LLM1 tldr, then LLM2 review)
+  //   tier <= 2 OR no t2Key → existing single-LLM path (preserves v0.3.x behavior)
+  const useT3T4Review = tier >= 3 && effectiveConfig.t2Key;
   try {
-    const vela = await assessVela(
-      action, scored.activityType, scored.riskScore, scored.triggerReason,
-      sliderPosition, promptMode, effectiveConfig, priorDecision
-    );
+    let vela, llm1Tldr;
 
-    log('info', vela.formatted);
+    if (useT3T4Review) {
+      // Step 1: LLM1 produces T2-shaped tldr assessment (uses primary llmKey).
+      // We force tldr mode here regardless of the threshold-based promptMode
+      // because LLM2's review prompt expects four strategy options as input.
+      const llm1Config = { ...effectiveConfig, t2Provider: null, t2Key: null };  // Force LLM1 routing
+      llm1Tldr = await assessVela(
+        action, scored.activityType, scored.riskScore, scored.triggerReason,
+        sliderPosition, 'tldr', llm1Config, priorDecision
+      );
 
-    // T1: always PROCEED. T2: always HOLD.
-    // The LLM picks the recommended strategy at T2, not the verdict.
+      // Step 2: LLM2 reviews LLM1's output (routes to t2Provider/t2Key — segregation of duties).
+      const ctx = {
+        activityType: scored.activityType,
+        riskScore: scored.riskScore,
+        triggerReason: scored.triggerReason,
+        tier
+      };
+      const opCfg = {
+        sliderPosition,
+        holdAction,
+        requiresHumanReview: false,  // would have short-circuited earlier
+        denyAtTier: activityConfig?.deny_at_tier ?? null,
+        matchedPolicies: 'none',
+        policyContent: null  // Phase B (v0.4.1) populates this from activityConfig.policy_content
+      };
+      const llm1Out = {
+        recommended: llm1Tldr.recommended,
+        reasoning: scored.triggerReason,
+        options: llm1Tldr.options || {}
+      };
+
+      vela = await assessVelaT3T4Review(action, ctx, opCfg, llm1Out, effectiveConfig, priorDecision);
+      log('info', `${vela.formatted}`);
+    } else {
+      vela = await assessVela(
+        action, scored.activityType, scored.riskScore, scored.triggerReason,
+        sliderPosition, promptMode, effectiveConfig, priorDecision
+      );
+      log('info', vela.formatted);
+    }
+
+    // T1: always PROCEED. T2/T3/T4: always HOLD (LLM2 cannot escalate to DENY).
     const status = tier === 1 ? 'PROCEED' : 'HOLD';
-    await register.updateVerdict(callId, status);
+
+    // Update verdict + persist new T3/T4 fields (llm1_recommended, llm2_recommended, agreement)
+    if (useT3T4Review) {
+      await register.updateVerdict(callId, status);
+      // Note: register.updateVerdict only updates verdict. Save-time persisted llm1/llm2/
+      // agreement requires a richer update. For now, the audit trail in `result.review`
+      // is returned to the caller; SQLite-side persistence of these fields is added in a
+      // future patch when the dashboard surfaces them.
+    } else {
+      await register.updateVerdict(callId, status);
+    }
 
     const result = {
       status, proceed: status === 'PROCEED', tier,
@@ -365,11 +455,20 @@ export async function assess(action, activityType, options = {}) {
       riskScore: scored.riskScore, triggerReason: scored.triggerReason,
       activityType: scored.activityType, callId,
       vela: vela.formatted, options: vela.options, recommended: vela.recommended,
-      promptMode, t2Attempted: true,
+      promptMode: useT3T4Review ? 't3_t4_review' : promptMode,
+      t2Attempted: true,
       wouldEscalate, escalateTier,
       parseFailed: vela.parseFailed, policyDecision: 'assess',
       radarEnabled: true
     };
+
+    // v0.4: T3/T4 review adds three new return fields
+    if (useT3T4Review) {
+      result.review = vela.review;
+      result.scopeHygiene = vela.scopeHygiene;
+      result.riskBenefit = vela.riskBenefit;
+    }
+
     if (status === 'HOLD') {
       result.holdAction = holdAction;
       result.notifyUrl = notifyUrl;
