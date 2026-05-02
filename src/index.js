@@ -417,7 +417,10 @@ export async function assess(action, activityType, options = {}) {
         requiresHumanReview: false,  // would have short-circuited earlier
         denyAtTier: activityConfig?.deny_at_tier ?? null,
         matchedPolicies: 'none',
-        policyContent: null  // Phase B (v0.4.1) populates this from activityConfig.policy_content
+        // v0.4 Phase B wire: feed operator-uploaded policy into LLM2's review prompt
+        // when policy_enabled. Drafts saved-but-not-enabled are intentionally skipped
+        // so operators can park work-in-progress policies without affecting assessments.
+        policyContent: activityConfig?.policy_enabled ? (activityConfig?.policy_content ?? null) : null
       };
       const llm1Out = {
         recommended: llm1Tldr.recommended,

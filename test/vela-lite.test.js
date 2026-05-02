@@ -391,6 +391,88 @@ describe('v0.4 Phase B — per-activity policy upload (saveActivityConfig)', () 
   });
 });
 
+describe('v0.4 Phase B wire — policy_content reaches LLM2 prompt via opCfg', () => {
+  // The conditional under test lives in src/index.js T3/T4 dispatch:
+  //   policyContent: activityConfig?.policy_enabled ? (activityConfig?.policy_content ?? null) : null
+  // These tests pin the rule by exercising the same conditional against real DB
+  // state. If the conditional in index.js diverges from this rule, both this test
+  // and src/index.js need to be updated together.
+
+  function policyForOpCfg(activityConfig) {
+    return activityConfig?.policy_enabled ? (activityConfig?.policy_content ?? null) : null;
+  }
+
+  it('enabled policy is fed into opCfg.policyContent', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    await saveActivityConfig('financial', {
+      sliderPosition: 0.9,
+      policyContent: 'Wire transfers over £10K require dual approval and 24-hour cooling period.',
+      policyEnabled: true
+    });
+    const cfg = await getActivityConfig('financial');
+    assert.equal(
+      policyForOpCfg(cfg),
+      'Wire transfers over £10K require dual approval and 24-hour cooling period.'
+    );
+  });
+
+  it('saved-but-disabled policy is NOT fed (drafts skipped)', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    await saveActivityConfig('financial', {
+      sliderPosition: 0.9,
+      policyContent: 'Draft policy — not yet ready.',
+      policyEnabled: false
+    });
+    const cfg = await getActivityConfig('financial');
+    assert.equal(policyForOpCfg(cfg), null);
+  });
+
+  it('no policy uploaded → null reaches opCfg', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    // Reset to clean state
+    await saveActivityConfig('email_single', {
+      policyContent: null,
+      policyEnabled: false
+    });
+    const cfg = await getActivityConfig('email_single');
+    assert.equal(policyForOpCfg(cfg), null);
+  });
+
+  it('buildT3T4ReviewPrompt receives policy text when wire is active', async () => {
+    // End-to-end: policy stored → loaded → conditional → prompt
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    await saveActivityConfig('email_bulk', {
+      sliderPosition: 0.7,
+      policyContent: 'Newsletters > 10K recipients require legal sign-off.',
+      policyEnabled: true
+    });
+    const cfg = await getActivityConfig('email_bulk');
+    const policyText = policyForOpCfg(cfg);
+
+    const prompt = buildT3T4ReviewPrompt(
+      'Send marketing newsletter to 50,000 subscribers',
+      { activityType: 'email_bulk', riskScore: 16, triggerReason: 'scale (+)', tier: 4 },
+      {
+        sliderPosition: 0.7, holdAction: 'halt', requiresHumanReview: false,
+        denyAtTier: null, matchedPolicies: 'none',
+        policyContent: policyText
+      },
+      { recommended: 'mitigate', reasoning: 'scale risk', options: { avoid: 'a', mitigate: 'b', transfer: 'c', accept: 'd' } },
+      null
+    );
+
+    assert.match(prompt, /<operator_policy[^>]*>/);
+    assert.ok(
+      prompt.includes('Newsletters > 10K recipients require legal sign-off.'),
+      'Expected policy text inside <operator_policy> block'
+    );
+    assert.ok(
+      !prompt.includes('no policy uploaded for this activity type'),
+      'Expected real policy, not placeholder fallback'
+    );
+  });
+});
+
 describe('v0.4 — T3_T4_REQUIRE_LLM2 gate', () => {
   // These tests verify the gate logic without requiring real LLM calls.
   // The gate fires BEFORE any LLM call, so testing it is purely deterministic.
