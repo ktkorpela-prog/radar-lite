@@ -447,6 +447,15 @@ export function startDashboard(port = 4040) {
       const { activities, human_review, hold_actions, notify_urls, deny_at_tier } = req.body;
       if (activities) {
         for (const [type, value] of Object.entries(activities)) {
+          // v0.4: defense-in-depth — enforce activity-name shape server-side.
+          // Client validates this on input, but this endpoint also accepts custom
+          // (non-ACTIVITY_TYPES) names, so a direct API call could otherwise persist
+          // strings that render unsafely via innerHTML in renderActivitySliders.
+          if (!/^[a-z0-9_]{1,30}$/.test(type)) {
+            return res.status(400).json({
+              error: `Invalid activity name "${type}". Lowercase letters, numbers, and underscores only; max 30 characters.`
+            });
+          }
           const slider = typeof value === 'number' ? value : 0.5;
           const hr = human_review && human_review[type] ? true : false;
           const ha = hold_actions && hold_actions[type] ? hold_actions[type] : undefined;
@@ -531,6 +540,15 @@ export function startDashboard(port = 4040) {
           error: `Policy content exceeds free tier cap (${content.length} / ${FREE_POLICY_CHAR_CAP} chars). Trim to fit, or upgrade for unlimited.`,
           charCount: content.length,
           charCap: FREE_POLICY_CHAR_CAP
+        });
+      }
+      // v0.4: defense-in-depth against prompt-injection via closing-tag forgery.
+      // policyContent is interpolated between <operator_policy> XML delimiters in
+      // buildT3T4ReviewPrompt. A policy containing the closing tag could break out
+      // of the policy block and inject prompt-level instructions into LLM2.
+      if (/<\/operator_policy/i.test(content)) {
+        return res.status(400).json({
+          error: 'Policy content cannot contain </operator_policy> tag.'
         });
       }
       await register.saveActivityConfig(activityType, {
