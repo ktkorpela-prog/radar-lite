@@ -222,6 +222,21 @@
   .hold-history { font-size: 10px; color: #555; margin-top: 4px; cursor: pointer; }
   .hold-history:hover { color: #909090; }
   .hold-history-list { font-size: 10px; color: #666; margin-top: 4px; line-height: 1.6; }
+  /* Deny at tier dropdown — sibling control to hold-config (v0.4) */
+  .deny-tier-config { margin-top: 8px; padding: 8px 0; }
+  .deny-tier-label { font-size: 11px; color: #909090; margin-bottom: 4px; }
+  .deny-tier-label .deny-tier-hint { color: #555; font-size: 10px; }
+  .deny-tier-select { background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; padding: 4px 8px; color: #f0ede8; font-size: 12px; min-width: 180px; }
+  .deny-tier-select:focus { outline: none; border-color: #f87171; }
+  .deny-tier-note { font-size: 10px; color: #666; margin-top: 6px; line-height: 1.5; }
+  .deny-tier-note code { font-family: 'SF Mono','Cascadia Code',monospace; font-size: 10px; background: #161616; padding: 1px 4px; border-radius: 2px; color: #c0bdb8; }
+  .deny-tier-note a { color: #c4943a; text-decoration: none; }
+  .deny-tier-note a:hover { text-decoration: underline; }
+  /* T3/T4 Review Mode radio (v0.4) */
+  .t3-t4-mode-radio { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; padding: 6px 0; font-size: 13px; color: #c0bdb8; line-height: 1.5; }
+  .t3-t4-mode-radio:hover { color: #f0ede8; }
+  .t3-t4-mode-radio input[type="radio"] { margin-top: 3px; cursor: pointer; }
+  .t3-t4-mode-radio strong { color: #f0ede8; }
   /* Policy panel — collapsible per-activity policy editor (v0.4 Phase B) */
   .policy-config { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #2a2a2a; }
   .policy-toggle { font-size: 11px; color: #c0bdb8; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; }
@@ -558,6 +573,25 @@
         </div>
       </div>
       <div style="font-size:11px;color:#555;margin-top:6px" id="t2-model-label">Model: same as T1</div>
+    </div>
+    <div class="settings-section" id="t3-t4-review-section">
+      <h3>T3/T4 Review Mode</h3>
+      <div style="margin-bottom:10px;font-size:12px;color:#909090">Controls whether T3/T4 high-risk assessments require a second LLM peer-review.</div>
+      <div class="setting-row" style="flex-direction:column;align-items:flex-start;gap:8px">
+        <label class="t3-t4-mode-radio">
+          <input type="radio" name="t3-t4-mode" value="single" id="t3-t4-mode-single" onchange="onT3T4ModeChange('single')">
+          <span><strong>Single-LLM</strong> (v0.3.x compatible) &mdash; T3/T4 use one LLM</span>
+        </label>
+        <label class="t3-t4-mode-radio">
+          <input type="radio" name="t3-t4-mode" value="dual" id="t3-t4-mode-dual" onchange="onT3T4ModeChange('dual')">
+          <span><strong>Dual-LLM review</strong> (recommended) &mdash; second LLM peer-reviews the verdict at high-risk tiers</span>
+        </label>
+      </div>
+      <div id="t3-t4-mode-warning" style="display:none;margin-top:8px;padding:8px 12px;background:rgba(251,191,36,0.05);border:1px solid rgba(251,191,36,0.25);border-left:2px solid #fbbf24;border-radius:3px;font-size:11px;color:#c0bdb8;line-height:1.5">
+        Dual-LLM review requires <code style="font-family:'SF Mono','Cascadia Code',monospace;font-size:10px;background:#161616;padding:1px 4px;border-radius:2px;color:#c0bdb8">T2_API_KEY</code> configured (above). Without it, T3/T4 actions will be held with <code style="font-family:'SF Mono','Cascadia Code',monospace;font-size:10px;background:#161616;padding:1px 4px;border-radius:2px;color:#c0bdb8">llm2_required</code>.
+      </div>
+      <div style="font-size:11px;color:#666;margin-top:8px;line-height:1.5">Dual-LLM review uses your second LLM (T2 provider/key) to peer-review the first LLM's verdict at high-risk tiers. Will become default in v0.5.0.</div>
+      <div id="t3-t4-mode-status" style="font-size:11px;margin-top:6px;min-height:14px"></div>
     </div>
     <div style="padding:0 24px 16px">
       <button class="btn-sm btn-primary" onclick="saveLlmConfig()">Save LLM config</button>
@@ -2112,6 +2146,7 @@ function loadSettings() {
   loadLlmConfig();
   loadActivityConfig();
   loadPolicies();
+  loadT3T4Mode();
 }
 
 const MODEL_MAP = {
@@ -2182,6 +2217,55 @@ async function saveLlmConfig() {
   }
 }
 
+// v0.4: T3/T4 Review Mode toggle. Reflects T3_T4_REQUIRE_LLM2 in ~/.radar/.env.
+let t3T4ModeT2KeyConfigured = false;
+
+async function loadT3T4Mode() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/t3-t4-require-llm2`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const d = await r.json();
+    t3T4ModeT2KeyConfigured = !!d.t2_key_configured;
+    const mode = d.enabled ? 'dual' : 'single';
+    const radioSingle = document.getElementById('t3-t4-mode-single');
+    const radioDual = document.getElementById('t3-t4-mode-dual');
+    if (radioSingle) radioSingle.checked = (mode === 'single');
+    if (radioDual) radioDual.checked = (mode === 'dual');
+    updateT3T4Warning(mode);
+  } catch (e) { /* silent */ }
+}
+
+function updateT3T4Warning(mode) {
+  const warn = document.getElementById('t3-t4-mode-warning');
+  if (!warn) return;
+  // Show the warning only when dual is selected AND T2 key is missing.
+  warn.style.display = (mode === 'dual' && !t3T4ModeT2KeyConfigured) ? 'block' : 'none';
+}
+
+async function onT3T4ModeChange(mode) {
+  const status = document.getElementById('t3-t4-mode-status');
+  updateT3T4Warning(mode);
+  try {
+    const r = await fetch(`${BASE}/dashboard/t3-t4-require-llm2`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ enabled: mode === 'dual' })
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      if (status) { status.style.color = '#f87171'; status.textContent = d.error || `Save failed (${r.status})`; }
+      return;
+    }
+    if (status) {
+      status.style.color = '#4ade80';
+      status.textContent = mode === 'dual' ? 'Dual-LLM review enabled' : 'Single-LLM mode (v0.3.x compatible)';
+      setTimeout(() => { status.textContent = ''; }, 2400);
+    }
+  } catch (e) {
+    if (status) { status.style.color = '#f87171'; status.textContent = 'Save failed'; }
+  }
+}
+
 const ACTIVITY_TYPES = [
   { key: 'email_single', label: 'Email (single)', default: 0.5, examples: ['Send email to user@example.com', 'Reply to support ticket #1234'] },
   { key: 'email_bulk', label: 'Email (bulk)', default: 1.0, examples: ['Send newsletter to 50,000 subscribers', 'Send password reset to all active users'] },
@@ -2202,6 +2286,8 @@ const DEPRECATED_TYPES = { email: 'email_single', publishing: 'publish', data_de
 let activityConfig = {};
 let humanReviewConfig = {};
 let holdActionConfig = {};
+// v0.4: per-activity DENY threshold. Map of activity → null/3/4. null = no override (inherits global).
+let denyAtTierConfig = {};
 // v0.4 Phase B — per-activity policy state. Map of activity → {policyContent, policyEnabled, policyUpdatedAt, charCount, charCap, estimatedTokens}.
 let policyConfig = {};
 let policyCharCap = 2000;
@@ -2212,6 +2298,7 @@ async function loadActivityConfig() {
     const d = await r.json();
     activityConfig = {};
     humanReviewConfig = {};
+    denyAtTierConfig = {};
     for (const a of ACTIVITY_TYPES) activityConfig[a.key] = a.default;
     if (d.activity_config) {
       for (const [k, v] of Object.entries(d.activity_config)) {
@@ -2219,6 +2306,9 @@ async function loadActivityConfig() {
         const mapped = DEPRECATED_TYPES[k] || k;
         activityConfig[mapped] = typeof v === 'object' ? (v.slider ?? 0.5) : v;
         if (typeof v === 'object' && v.human_review) humanReviewConfig[mapped] = true;
+        if (typeof v === 'object' && (v.deny_at_tier === 3 || v.deny_at_tier === 4)) {
+          denyAtTierConfig[mapped] = v.deny_at_tier;
+        }
       }
     }
     if (d.human_review_config) {
@@ -2263,6 +2353,15 @@ function renderActivitySliders() {
       </label>
       <span class="slider-saved" id="saved-${activity}">Saved</span>
       ${deleteBtn}
+    </div>
+    <div class="deny-tier-config" id="deny-tier-config-${activity}">
+      <div class="deny-tier-label">Deny at tier <span class="deny-tier-hint">— hard-stop verdict instead of HOLD at this tier and above</span></div>
+      <select class="deny-tier-select" onchange="onDenyAtTierChange('${activity}',this.value)" id="deny-tier-sel-${activity}">
+        <option value=""${denyAtTierConfig[activity] == null ? ' selected' : ''}>None (default)</option>
+        <option value="3"${denyAtTierConfig[activity] === 3 ? ' selected' : ''}>T3+ &rarr; DENY</option>
+        <option value="4"${denyAtTierConfig[activity] === 4 ? ' selected' : ''}>T4 only &rarr; DENY</option>
+      </select>
+      <div class="deny-tier-note">When DENY fires, the action is hard-stopped. Override requires <code>radar.strategy(callId, 'override_deny', { reason, decidedBy })</code> &mdash; <a href="https://radar.essentianlabs.com/docs.html#deny-overrides" target="_blank">see docs</a>.</div>
     </div>
     <div class="hold-config${isHR ? ' hidden-hr' : ''}" id="hold-config-${activity}">
       ${isHR ? '<div style="font-size:11px;color:#666;padding:4px 0">Human review enabled — hold action not applicable</div>' : `
@@ -2313,7 +2412,26 @@ async function onHumanReviewToggle(el) {
   await saveActivityConfig();
   showSaved(act);
 }
-async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig, hold_actions: holdActionConfig }) }); } catch (e) { console.error('Config save error', e); } }
+async function saveActivityConfig() {
+  try {
+    // v0.4: build deny_at_tier map. Send explicit null for activities the operator cleared,
+    // so the backend can wipe a previous override. Send 3/4 for explicit selections.
+    const denyAtTierBody = {};
+    for (const a of Object.keys(activityConfig)) {
+      denyAtTierBody[a] = denyAtTierConfig[a] ?? null;
+    }
+    await fetch(`${BASE}/radar/config`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        activities: activityConfig,
+        human_review: humanReviewConfig,
+        hold_actions: holdActionConfig,
+        deny_at_tier: denyAtTierBody
+      })
+    });
+  } catch (e) { console.error('Config save error', e); }
+}
 
 // ─── Policy editor (v0.4 Phase B) ───────────────────────────────────────────
 async function loadPolicies() {
@@ -2347,13 +2465,13 @@ function renderPolicyPanel(activity) {
     </div>
     <div class="policy-panel" id="policy-panel-${activity}">
       ${hasPolicy ? '' : `<div class="policy-empty">No policy uploaded for this activity type.<br>Upload a policy and Vela will check action compliance during T3/T4 review.<br><span style="color:#666">Free tier: max ${policyCharCap} characters per activity policy.</span></div>`}
-      ${hasPolicy ? `<div class="policy-row">
+      <div class="policy-row">
         <label class="policy-enabled-toggle">
-          <input type="checkbox" id="policy-enabled-${activity}" ${p.policyEnabled ? 'checked' : ''} onchange="onPolicyEnabledChange('${activity}',this.checked)">
-          <span>Enabled</span>
+          <input type="checkbox" id="policy-enabled-${activity}" ${p.policyEnabled ? 'checked' : ''} ${hasPolicy ? '' : 'data-pending="true"'} onchange="${hasPolicy ? `onPolicyEnabledChange('${activity}',this.checked)` : ''}">
+          <span>Enabled${hasPolicy ? '' : ' (saved on first Save)'}</span>
         </label>
         <span class="cap-note">Free tier: max ${policyCharCap} characters.</span>
-      </div>` : ''}
+      </div>
       <textarea
         class="policy-textarea"
         id="policy-text-${activity}"
@@ -2439,7 +2557,11 @@ async function savePolicy(activity) {
     const ok = confirm(`Replace existing policy for '${activity}'?\n\nCurrent: ${existing.charCount} chars, last updated ${ts}\nNew: ${newContent.length} chars`);
     if (!ok) return;
   }
-  const enabled = existing?.policyEnabled !== false; // default true on first save
+  // Honour the Enabled checkbox state. Empty state has data-pending="true" — its
+  // value is captured here on first save. Populated state's checkbox uses
+  // onPolicyEnabledChange directly, so this read still gives the current value.
+  const enabledCb = document.getElementById('policy-enabled-' + activity);
+  const enabled = enabledCb ? enabledCb.checked : (existing?.policyEnabled !== false);
   await sendPolicy(activity, newContent, enabled);
 }
 
@@ -2542,6 +2664,18 @@ async function onHoldActionChange(activity, action) {
   holdActionConfig[activity].last_changed = new Date().toISOString();
   const notifyInput = document.getElementById('hold-notify-' + activity);
   if (notifyInput) notifyInput.style.display = action === 'notify' ? 'block' : 'none';
+  await saveActivityConfig();
+  showSaved(activity);
+}
+
+// v0.4: Deny at tier — null/3/4. Empty string from <select> means clear (null).
+async function onDenyAtTierChange(activity, value) {
+  if (value === '' || value == null) {
+    delete denyAtTierConfig[activity];
+  } else {
+    const n = parseInt(value, 10);
+    if (n === 3 || n === 4) denyAtTierConfig[activity] = n;
+  }
   await saveActivityConfig();
   showSaved(activity);
 }
