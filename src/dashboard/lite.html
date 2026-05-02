@@ -2483,7 +2483,7 @@ function renderPolicyPanel(activity) {
         <span class="policy-counter" id="policy-counter-${activity}">${p.charCount}/${policyCharCap}</span>
         <span class="meta">${updated}</span>
       </div>
-      <div class="policy-cost${hasPolicy ? ' box' : ''}" id="policy-cost-${activity}">${hasPolicy ? `<strong>Adds 1 LLM call</strong> to every assessment of <code>${esc(activity)}</code> &mdash; <span class="delta">~${p.estimatedTokens} tokens</span> of policy context per call.<span class="extra">Without a policy, T1 actions are 1 call (oneliner). With a policy, T1 becomes 2 calls (oneliner + compliance check). Cost varies by provider.</span>` : 'Estimated added cost per assessment will appear as you type.'}</div>
+      <div class="policy-cost${hasPolicy ? ' box' : ''}" id="policy-cost-${activity}">${hasPolicy ? `<strong>Augments T3/T4 review</strong> for <code>${esc(activity)}</code> &mdash; <span class="delta">~${p.estimatedTokens} tokens</span> of policy context added to each T3/T4 review prompt.<span class="extra">No extra LLM calls — policy is woven into the existing dual-LLM review at high-risk tiers. T1/T2 actions are unaffected in v0.4.0; standalone compliance check at all tiers ships in v0.4.1.</span>` : 'Estimated added cost per assessment will appear as you type.'}</div>
       <div class="policy-upgrade" id="policy-upgrade-${activity}" style="display:none">Free tier supports concise policies (${policyCharCap} chars). For full compliance documents, see <a href="https://radar.essentianlabs.com#paid" target="_blank" rel="noopener">paid plan</a>.</div>
       <div class="policy-actions">
         <button class="policy-btn primary" id="policy-save-${activity}" onclick="savePolicy('${activity}')" disabled>Save</button>
@@ -2526,7 +2526,7 @@ function onPolicyInput(activity) {
       cost.innerHTML = 'Estimated added cost per assessment will appear as you type.';
     } else {
       cost.classList.add('box');
-      cost.innerHTML = `<strong>Saving will add 1 LLM call</strong> to every assessment of <code>${esc(activity)}</code> &mdash; <span class="delta">~${tokens} tokens</span> of policy context per call.<span class="extra">Without a policy, T1 actions are 1 call (oneliner). With a policy, T1 becomes 2 calls (oneliner + compliance check). Cost varies by provider.</span>`;
+      cost.innerHTML = `<strong>Saving will augment T3/T4 review</strong> for <code>${esc(activity)}</code> &mdash; <span class="delta">~${tokens} tokens</span> of policy context added to each T3/T4 review prompt.<span class="extra">No extra LLM calls — policy is woven into the existing dual-LLM review at high-risk tiers. T1/T2 actions are unaffected in v0.4.0; standalone compliance check at all tiers ships in v0.4.1.</span>`;
     }
   }
   if (upgrade) upgrade.style.display = overCap ? 'block' : 'none';
