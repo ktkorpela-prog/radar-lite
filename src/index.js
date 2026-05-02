@@ -251,6 +251,35 @@ export async function assess(action, activityType, options = {}) {
   const wouldEscalate = scored.wouldEscalate;
   const escalateTier = scored.escalateTier;
 
+  // === v0.4: DENY by activity-configured deny_at_tier ===
+  // Operator can configure per-activity deny_at_tier (NULL/3/4) on activity_config.
+  // Fires BEFORE score-20+irreversibility check (per locked DENY ordering in V04-PLAN.md):
+  //   1. Trigger policy 'deny' (already handled above)
+  //   2. activity_severity_deny (this check)
+  //   3. score-20-irreversibility (next check)
+  // Each path produces a distinct policyDecision value for audit.
+  // Override available via radar.strategy(callId, 'override_deny', {reason, decidedBy})
+  // — same mechanism as all other DENY paths.
+  const denyAtTier = activityConfig?.deny_at_tier;
+  if (denyAtTier !== null && denyAtTier !== undefined && scored.rawTier >= denyAtTier) {
+    await register.save({
+      callId, actionHash, activityType: scored.activityType,
+      tier: scored.rawTier, riskScore: scored.riskScore,
+      verdict: 'DENY', policyDecision: 'activity_severity_deny', agentId
+    });
+    log('info', `RADAR | DENY | Activity '${scored.activityType}' configured deny_at_tier=${denyAtTier}, action reached T${scored.rawTier}`);
+    return withVerdict(_startTime, {
+      status: 'DENY', proceed: false, tier: scored.rawTier,
+      reviewRequired: false, riskScore: scored.riskScore,
+      triggerReason: scored.triggerReason,
+      activityType: scored.activityType, callId,
+      vela: null, options: null, recommended: null,
+      reason: `Activity '${scored.activityType}' configured to DENY at T${denyAtTier}+. Action scored T${scored.rawTier} (score ${scored.riskScore}/25). Override requires radar.strategy(callId, 'override_deny', { reason, decidedBy })`,
+      wouldEscalate, escalateTier,
+      policyDecision: 'activity_severity_deny', radarEnabled: true
+    });
+  }
+
   // === DENY: Score 20+ with irreversibility signal ===
   if (scored.riskScore >= DENY_SCORE_THRESHOLD && hasIrreversibilitySignal(scored.triggerReason)) {
     await register.save({
