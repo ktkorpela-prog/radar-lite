@@ -81,7 +81,10 @@ function getEffectiveLlmConfig() {
   const envPath = join(homedir(), '.radar', '.env');
   if (existsSync(envPath)) {
     const content = readFileSync(envPath, 'utf-8');
-    for (const m of content.matchAll(/^([A-Z_]+)\s*=\s*(.*)$/gm)) {
+    // Match standard env var names: must start with letter/underscore, then
+    // can contain digits. Previously [A-Z_]+ silently dropped T2_PROVIDER /
+    // T2_API_KEY because of the digit — broke dual-provider config.
+    for (const m of content.matchAll(/^([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/gm)) {
       fromFile[m[1]] = m[2].trim();
     }
   }

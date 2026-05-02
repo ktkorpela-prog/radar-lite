@@ -291,3 +291,44 @@ describe('v0.3.4 OVERRIDE_DENY filter — parseTldrResponse', () => {
     assert.equal(normaliseLabel(' AVOID '), 'avoid');
   });
 });
+
+// Regression test for env-file regex bug discovered during v0.4 baseline test
+// (2026-05-02). The original regex [A-Z_]+ silently dropped T2_PROVIDER and
+// T2_API_KEY because they contain a digit. Result: dual-provider config via
+// .env was broken since v0.3.6. Fixed by allowing digits after the first char:
+// [A-Z_][A-Z0-9_]*
+describe('env file parsing regex (getEffectiveLlmConfig)', () => {
+  // Mirror the regex used in src/index.js getEffectiveLlmConfig
+  const ENV_REGEX = /^([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/gm;
+
+  it('matches keys with digits (T2_PROVIDER, T2_API_KEY)', () => {
+    const content = `LLM_PROVIDER=anthropic
+LLM_API_KEY=sk-ant-xxx
+T2_PROVIDER=openai
+T2_API_KEY=sk-proj-xxx`;
+    const keys = [...content.matchAll(ENV_REGEX)].map(m => m[1]);
+    assert.ok(keys.includes('LLM_PROVIDER'));
+    assert.ok(keys.includes('LLM_API_KEY'));
+    assert.ok(keys.includes('T2_PROVIDER'), 'T2_PROVIDER must match — was broken with [A-Z_]+ regex');
+    assert.ok(keys.includes('T2_API_KEY'), 'T2_API_KEY must match — was broken with [A-Z_]+ regex');
+  });
+
+  it('matches uppercase-only keys', () => {
+    const content = 'RADAR_ENABLED=true';
+    const keys = [...content.matchAll(ENV_REGEX)].map(m => m[1]);
+    assert.ok(keys.includes('RADAR_ENABLED'));
+  });
+
+  it('rejects keys starting with digit', () => {
+    const content = '2INVALID=foo';
+    const matches = [...content.matchAll(ENV_REGEX)];
+    assert.equal(matches.length, 0);
+  });
+
+  it('captures values with special characters intact', () => {
+    const content = 'T2_API_KEY=sk-proj-abc_def-123/xyz';
+    const matches = [...content.matchAll(ENV_REGEX)];
+    assert.equal(matches.length, 1);
+    assert.equal(matches[0][2].trim(), 'sk-proj-abc_def-123/xyz');
+  });
+});
