@@ -222,6 +222,41 @@
   .hold-history { font-size: 10px; color: #555; margin-top: 4px; cursor: pointer; }
   .hold-history:hover { color: #909090; }
   .hold-history-list { font-size: 10px; color: #666; margin-top: 4px; line-height: 1.6; }
+  /* Policy panel — collapsible per-activity policy editor (v0.4 Phase B) */
+  .policy-config { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #2a2a2a; }
+  .policy-toggle { font-size: 11px; color: #c0bdb8; cursor: pointer; user-select: none; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .policy-toggle:hover { color: #f0ede8; }
+  .policy-toggle .caret { font-size: 9px; color: #555; transition: transform 0.15s; display: inline-block; width: 8px; }
+  .policy-toggle.open .caret { transform: rotate(90deg); color: #c4943a; }
+  .policy-toggle .pill { font-size: 9px; padding: 1px 6px; border-radius: 8px; background: #161616; border: 1px solid #2a2a2a; color: #909090; letter-spacing: 0.04em; text-transform: uppercase; }
+  .policy-toggle .pill.active { color: #4ade80; border-color: #1a4a2a; background: rgba(74, 222, 128, 0.06); }
+  .policy-panel { display: none; margin-top: 10px; padding: 12px; background: #0d0d0d; border: 1px solid #2a2a2a; border-radius: 4px; }
+  .policy-panel.open { display: block; }
+  .policy-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .policy-row .meta { font-size: 11px; color: #909090; }
+  .policy-row .cap-note { font-size: 11px; color: #666; }
+  .policy-textarea { width: 100%; min-height: 110px; background: #070707; border: 1px solid #2a2a2a; border-radius: 4px; padding: 8px 10px; color: #f0ede8; font-family: 'SF Mono','Cascadia Code','Consolas',monospace; font-size: 12px; line-height: 1.55; resize: vertical; outline: none; }
+  .policy-textarea:focus { border-color: #c4943a; }
+  .policy-textarea.over-cap { border-color: #f87171; }
+  .policy-counter { font-size: 11px; color: #909090; font-family: 'SF Mono','Cascadia Code',monospace; }
+  .policy-counter.warn { color: #fbbf24; }
+  .policy-counter.over { color: #f87171; font-weight: 600; }
+  .policy-cost { font-size: 11px; color: #666; margin-top: 6px; line-height: 1.5; }
+  .policy-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .policy-btn { background: #161616; border: 1px solid #2a2a2a; border-radius: 4px; padding: 6px 12px; color: #c0bdb8; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .policy-btn:hover:not(:disabled) { border-color: #c4943a; color: #f0ede8; }
+  .policy-btn.primary { background: #c4943a; border-color: #c4943a; color: #0d0d0d; font-weight: 600; }
+  .policy-btn.primary:hover:not(:disabled) { background: #d4a44a; border-color: #d4a44a; }
+  .policy-btn.danger:hover:not(:disabled) { border-color: #f87171; color: #f87171; }
+  .policy-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .policy-empty { font-size: 12px; color: #909090; line-height: 1.6; padding-bottom: 8px; }
+  .policy-status { font-size: 11px; color: #4ade80; opacity: 0; transition: opacity 0.2s; }
+  .policy-status.show { opacity: 1; }
+  .policy-status.error { color: #f87171; }
+  .policy-upgrade { font-size: 11px; color: #fbbf24; margin-top: 6px; line-height: 1.5; }
+  .policy-upgrade a { color: #fbbf24; text-decoration: underline; }
+  .policy-enabled-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #c0bdb8; cursor: pointer; user-select: none; }
+  .policy-enabled-toggle input { cursor: pointer; }
   .expand-row td { padding: 0; border-bottom: 1px solid #1a1a1a; }
   .expand-inner { padding: 16px 20px; background: #121218; font-size: 14px; line-height: 1.7; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .expand-inner .full-width { grid-column: 1 / -1; }
@@ -560,11 +595,6 @@ let pollTimer = null;
 function authHeaders(extra) {
   const h = {};
   if (apiKey) h['Authorization'] = 'Bearer ' + apiKey;
-  // Session token issued by /dashboard/verify-password — required on write
-  // endpoints when DASHBOARD_PASSWORD is configured. Stored in sessionStorage,
-  // cleared on logout / browser tab close.
-  const token = sessionStorage.getItem('radar_lite_token');
-  if (token) h['X-Dashboard-Token'] = token;
   if (extra) Object.assign(h, extra);
   return h;
 }
@@ -628,8 +658,7 @@ async function toggleRadarEnabled(enabled) {
   }
   try {
     await fetch(`${BASE}/dashboard/radar-enabled`, {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled })
     });
     checkRadarEnabled();
@@ -674,9 +703,6 @@ async function verifyKey() {
     const d = await r.json();
     if (d.valid) {
       sessionStorage.setItem('radar_lite_auth', 'true');
-      // Token issued only when DASHBOARD_PASSWORD is configured;
-      // otherwise writes are open and no token is needed.
-      if (d.token) sessionStorage.setItem('radar_lite_token', d.token);
       statusEl.className = 'auth-status-msg ok';
       statusEl.textContent = 'Authenticated \u2014 loading dashboard...';
       btn.textContent = '\u2713 Verified';
@@ -700,7 +726,6 @@ async function verifyKey() {
 
 function logout() {
   sessionStorage.removeItem('radar_lite_auth');
-  sessionStorage.removeItem('radar_lite_token');
   apiKey = null;
   document.getElementById('dashboard').style.display = 'none';
   const gate = document.getElementById('auth-gate');
@@ -889,7 +914,7 @@ function populateAgentDropdowns() {
     if (!sel) return;
     sel.innerHTML = '<option value="">All Agents</option>';
     for (const [name, a] of mergedAgents) {
-      sel.innerHTML += `<option value="${esc(a.agent_id || '')}">${esc(name)} (${esc(a.count)} calls)</option>`;
+      sel.innerHTML += `<option value="${a.agent_id || ''}">${name} (${a.count} calls)</option>`;
     }
     // Preserve current selection if the agent still exists
     if (selectedAgent && mergedAgents.has(selectedAgent)) sel.value = selectedAgent;
@@ -1261,10 +1286,10 @@ function renderBoxPlot(perDayByAgent) {
       .on('click', () => onAgentFilter(a.agentId || ''))
       .on('mouseenter', function(event) {
         d3.select(this).attr('fill', a.color + '60').attr('stroke', a.color);
-        tip.innerHTML = `<strong style="color:${a.color}">${esc(a.agentId || 'Unidentified')}</strong><br>` +
-          `<span style="color:#fff">Total: ${esc(a.total)} calls</span><br>` +
-          `<span style="color:#909090">${esc(a.activeDays)} active day${a.activeDays !== 1 ? 's' : ''} · ` +
-          `Avg: ${esc(a.avg.toFixed(1))}/day · Max: ${esc(a.max)}/day · Med: ${esc(a.median)}/day</span>`;
+        tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>` +
+          `<span style="color:#fff">Total: ${a.total} calls</span><br>` +
+          `<span style="color:#909090">${a.activeDays} active day${a.activeDays !== 1 ? 's' : ''} · ` +
+          `Avg: ${a.avg.toFixed(1)}/day · Max: ${a.max}/day · Med: ${a.median}/day</span>`;
         tip.style.display = 'block';
         const cr = document.getElementById('boxplot-container').getBoundingClientRect();
         tip.style.left = (event.clientX - cr.left + 12) + 'px';
@@ -1299,7 +1324,7 @@ function renderBoxPlot(perDayByAgent) {
           .on('click', () => onAgentFilter(a.agentId || ''))
           .on('mouseenter', function(event) {
             d3.select(this).attr('r', r + 2).attr('fill-opacity', 1);
-            tip.innerHTML = `<strong style="color:${a.color}">${esc(a.agentId || 'Unidentified')}</strong><br>${esc(val)} calls on ${esc(dayLabels[di])}`;
+            tip.innerHTML = `<strong style="color:${a.color}">${a.agentId || 'Unidentified'}</strong><br>${val} calls on ${dayLabels[di]}`;
             tip.style.display = 'block';
             const cr = document.getElementById('boxplot-container').getBoundingClientRect();
             tip.style.left = (event.clientX - cr.left + 12) + 'px';
@@ -2082,6 +2107,7 @@ function copySnippet(agentId) {
 function loadSettings() {
   loadLlmConfig();
   loadActivityConfig();
+  loadPolicies();
 }
 
 const MODEL_MAP = {
@@ -2172,6 +2198,9 @@ const DEPRECATED_TYPES = { email: 'email_single', publishing: 'publish', data_de
 let activityConfig = {};
 let humanReviewConfig = {};
 let holdActionConfig = {};
+// v0.4 Phase B — per-activity policy state. Map of activity → {policyContent, policyEnabled, policyUpdatedAt, charCount, charCap, estimatedTokens}.
+let policyConfig = {};
+let policyCharCap = 2000;
 
 async function loadActivityConfig() {
   try {
@@ -2246,7 +2275,8 @@ function renderActivitySliders() {
       <div class="hold-history" id="hold-hist-${activity}" onclick="toggleHoldHistory('${activity}')">${holdActionConfig[activity]?.last_changed ? 'Last changed ' + new Date(holdActionConfig[activity].last_changed).toLocaleString() : 'No changes recorded'}</div>
       <div class="hold-history-list" id="hold-hist-list-${activity}" style="display:none"></div>
       `}
-    </div>`;
+    </div>
+    <div class="policy-config" id="policy-config-${activity}">${renderPolicyPanel(activity)}</div>`;
   }
   html += `<button class="add-activity-btn" onclick="showAddActivity()">+ Add custom activity</button>`;
   html += `<div class="add-activity-form" id="add-activity-form" style="display:none"><input type="text" id="new-activity-input" placeholder="e.g. legal_document, sms_send" maxlength="30" oninput="validateActivityName(this)"><button class="btn-sm btn-primary" onclick="addCustomActivity()">Add</button><div class="add-activity-error" id="add-activity-error"></div></div>`;
@@ -2280,6 +2310,223 @@ async function onHumanReviewToggle(el) {
   showSaved(act);
 }
 async function saveActivityConfig() { try { await fetch(`${BASE}/radar/config`, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ activities: activityConfig, human_review: humanReviewConfig, hold_actions: holdActionConfig }) }); } catch (e) { console.error('Config save error', e); } }
+
+// ─── Policy editor (v0.4 Phase B) ───────────────────────────────────────────
+async function loadPolicies() {
+  try {
+    const r = await fetch(`${BASE}/dashboard/policies`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const d = await r.json();
+    policyCharCap = d.charCap || 2000;
+    policyConfig = {};
+    for (const p of (d.policies || [])) policyConfig[p.activityType] = p;
+    // Re-render any open policy panels with fresh data
+    for (const activity of Object.keys(policyConfig)) {
+      const container = document.getElementById('policy-config-' + activity);
+      if (container) container.innerHTML = renderPolicyPanel(activity);
+    }
+  } catch (e) { /* silent — settings loads in background */ }
+}
+
+function renderPolicyPanel(activity) {
+  const p = policyConfig[activity] || { policyContent: '', policyEnabled: false, policyUpdatedAt: null, charCount: 0, estimatedTokens: 0 };
+  const hasPolicy = (p.policyContent || '').length > 0;
+  const pillClass = hasPolicy && p.policyEnabled ? 'pill active' : 'pill';
+  const pillLabel = hasPolicy ? (p.policyEnabled ? 'Active' : 'Saved') : 'None';
+  const updated = p.policyUpdatedAt ? `Last updated ${formatRelativeTime(p.policyUpdatedAt)}` : '';
+  return `
+    <div class="policy-toggle" id="policy-toggle-${activity}" onclick="togglePolicyPanel('${activity}')">
+      <span class="caret">&rsaquo;</span>
+      <span>Policy</span>
+      <span class="${pillClass}">${pillLabel}</span>
+      ${hasPolicy ? `<span style="font-size:10px;color:#666">${p.charCount}/${policyCharCap} chars · ~${p.estimatedTokens} tokens</span>` : ''}
+    </div>
+    <div class="policy-panel" id="policy-panel-${activity}">
+      ${hasPolicy ? '' : `<div class="policy-empty">No policy uploaded for this activity type.<br>Upload a policy and Vela will check action compliance during T3/T4 review.<br><span style="color:#666">Free tier: max ${policyCharCap} characters per activity policy.</span></div>`}
+      ${hasPolicy ? `<div class="policy-row">
+        <label class="policy-enabled-toggle">
+          <input type="checkbox" id="policy-enabled-${activity}" ${p.policyEnabled ? 'checked' : ''} onchange="onPolicyEnabledChange('${activity}',this.checked)">
+          <span>Enabled</span>
+        </label>
+        <span class="cap-note">Free tier: max ${policyCharCap} characters.</span>
+      </div>` : ''}
+      <textarea
+        class="policy-textarea"
+        id="policy-text-${activity}"
+        rows="6"
+        placeholder="Paste your policy here. Vela will check actions against it during T3/T4 review.&#10;&#10;Example: Financial transactions over £1000 require dual approval. Refunds must reference an original invoice. Wire transfers to new accounts require 24-hour cooling period."
+        oninput="onPolicyInput('${activity}')"
+      >${esc(p.policyContent || '')}</textarea>
+      <div class="policy-row" style="margin-top:6px;justify-content:space-between">
+        <span class="policy-counter" id="policy-counter-${activity}">${p.charCount}/${policyCharCap}</span>
+        <span class="meta">${updated}</span>
+      </div>
+      <div class="policy-cost" id="policy-cost-${activity}">${hasPolicy ? `Each assessment of <code>${esc(activity)}</code> includes ~${p.estimatedTokens} additional tokens of policy context.` : 'Estimated added cost per assessment will appear as you type.'}</div>
+      <div class="policy-upgrade" id="policy-upgrade-${activity}" style="display:none">Free tier supports concise policies (${policyCharCap} chars). For full compliance documents, see <a href="https://radar.essentianlabs.com#paid" target="_blank" rel="noopener">paid plan</a>.</div>
+      <div class="policy-actions">
+        <button class="policy-btn primary" id="policy-save-${activity}" onclick="savePolicy('${activity}')" disabled>Save</button>
+        <button class="policy-btn" onclick="discardPolicy('${activity}')">Discard</button>
+        ${hasPolicy ? `<button class="policy-btn danger" onclick="deletePolicy('${activity}')">Delete policy</button>` : ''}
+        <span class="policy-status" id="policy-status-${activity}"></span>
+      </div>
+    </div>`;
+}
+
+function togglePolicyPanel(activity) {
+  const toggle = document.getElementById('policy-toggle-' + activity);
+  const panel = document.getElementById('policy-panel-' + activity);
+  if (!toggle || !panel) return;
+  const open = !toggle.classList.contains('open');
+  toggle.classList.toggle('open', open);
+  panel.classList.toggle('open', open);
+}
+
+function onPolicyInput(activity) {
+  const ta = document.getElementById('policy-text-' + activity);
+  const counter = document.getElementById('policy-counter-' + activity);
+  const cost = document.getElementById('policy-cost-' + activity);
+  const upgrade = document.getElementById('policy-upgrade-' + activity);
+  const saveBtn = document.getElementById('policy-save-' + activity);
+  if (!ta) return;
+  const len = ta.value.length;
+  const tokens = Math.ceil(len / 4);
+  const overCap = len > policyCharCap;
+  const nearCap = len >= policyCharCap * 0.9 && !overCap;
+  ta.classList.toggle('over-cap', overCap);
+  if (counter) {
+    counter.textContent = `${len}/${policyCharCap}`;
+    counter.classList.toggle('warn', nearCap);
+    counter.classList.toggle('over', overCap);
+  }
+  if (cost) {
+    cost.innerHTML = len === 0
+      ? 'Estimated added cost per assessment will appear as you type.'
+      : `Saving this policy will add ~${tokens} tokens to every assessment of <code>${esc(activity)}</code>.`;
+  }
+  if (upgrade) upgrade.style.display = overCap ? 'block' : 'none';
+  // Save button: enabled only if changed AND within cap
+  const original = (policyConfig[activity]?.policyContent || '');
+  if (saveBtn) saveBtn.disabled = overCap || ta.value === original;
+}
+
+async function onPolicyEnabledChange(activity, enabled) {
+  const p = policyConfig[activity];
+  if (!p || !p.policyContent) return;
+  // Save with new enabled state, content unchanged
+  await sendPolicy(activity, p.policyContent, enabled);
+}
+
+async function savePolicy(activity) {
+  const ta = document.getElementById('policy-text-' + activity);
+  if (!ta) return;
+  const newContent = ta.value;
+  if (newContent.length > policyCharCap) {
+    setPolicyStatus(activity, `Over cap (${newContent.length}/${policyCharCap}).`, true);
+    return;
+  }
+  // Confirm overwrite if existing
+  const existing = policyConfig[activity];
+  if (existing && existing.policyContent && existing.policyContent.length > 0 && existing.policyContent !== newContent) {
+    const ts = existing.policyUpdatedAt ? formatRelativeTime(existing.policyUpdatedAt) : 'unknown';
+    const ok = confirm(`Replace existing policy for '${activity}'?\n\nCurrent: ${existing.charCount} chars, last updated ${ts}\nNew: ${newContent.length} chars`);
+    if (!ok) return;
+  }
+  const enabled = existing?.policyEnabled !== false; // default true on first save
+  await sendPolicy(activity, newContent, enabled);
+}
+
+async function sendPolicy(activity, content, enabled) {
+  const saveBtn = document.getElementById('policy-save-' + activity);
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    const r = await fetch(`${BASE}/dashboard/policies/${encodeURIComponent(activity)}`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ content, enabled })
+    });
+    const d = await r.json();
+    if (!r.ok) {
+      setPolicyStatus(activity, d.error || `Save failed (${r.status}).`, true);
+      if (saveBtn) saveBtn.disabled = false;
+      return;
+    }
+    // Update local state
+    policyConfig[activity] = {
+      activityType: activity,
+      policyContent: content,
+      policyEnabled: !!enabled,
+      policyUpdatedAt: new Date().toISOString(),
+      charCount: d.charCount,
+      charCap: d.charCap,
+      estimatedTokens: d.estimatedTokens
+    };
+    // Preserve open state, re-render panel
+    const wasOpen = document.getElementById('policy-toggle-' + activity)?.classList.contains('open');
+    const container = document.getElementById('policy-config-' + activity);
+    if (container) container.innerHTML = renderPolicyPanel(activity);
+    if (wasOpen) togglePolicyPanel(activity);
+    setPolicyStatus(activity, `Saved · ${d.charCount} chars`);
+  } catch (e) {
+    setPolicyStatus(activity, 'Save failed.', true);
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function deletePolicy(activity) {
+  if (!confirm(`Delete policy for '${activity}'? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(`${BASE}/dashboard/policies/${encodeURIComponent(activity)}`, {
+      method: 'DELETE',
+      headers: authHeaders()
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      setPolicyStatus(activity, d.error || `Delete failed (${r.status}).`, true);
+      return;
+    }
+    policyConfig[activity] = { activityType: activity, policyContent: '', policyEnabled: false, policyUpdatedAt: null, charCount: 0, charCap: policyCharCap, estimatedTokens: 0 };
+    const wasOpen = document.getElementById('policy-toggle-' + activity)?.classList.contains('open');
+    const container = document.getElementById('policy-config-' + activity);
+    if (container) container.innerHTML = renderPolicyPanel(activity);
+    if (wasOpen) togglePolicyPanel(activity);
+    setPolicyStatus(activity, 'Deleted');
+  } catch (e) {
+    setPolicyStatus(activity, 'Delete failed.', true);
+  }
+}
+
+function discardPolicy(activity) {
+  const ta = document.getElementById('policy-text-' + activity);
+  if (!ta) return;
+  ta.value = policyConfig[activity]?.policyContent || '';
+  onPolicyInput(activity);
+  setPolicyStatus(activity, 'Discarded changes');
+}
+
+function setPolicyStatus(activity, msg, isError) {
+  const el = document.getElementById('policy-status-' + activity);
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle('error', !!isError);
+  el.classList.add('show');
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+function formatRelativeTime(iso) {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, now - then);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hr ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day} day${day === 1 ? '' : 's'} ago`;
+  return new Date(iso).toLocaleDateString();
+}
 
 async function onHoldActionChange(activity, action) {
   if (!holdActionConfig[activity]) holdActionConfig[activity] = {};
