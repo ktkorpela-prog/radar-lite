@@ -287,8 +287,10 @@ When `verdict` is `HOLD`, the return object includes `holdAction` telling your c
 |------------|---------|-----------------|
 | `halt` | Agent stops (default) | Stop execution, wait for manual handling |
 | `queue` | Queue for review | Add to your review queue — no queue is built into RADAR |
-| `log_only` | Log and proceed | Log the HOLD, continue execution — you accept the risk |
+| `accept` | Log and proceed | Log the HOLD, continue execution — you accept the risk |
 | `notify` | Send notification + halt | Send to `result.notifyUrl`, then halt |
+
+The `holdAction` field is advisory — RADAR returns the value, your code decides what to do with it. The package only interprets two values internally: `halt` is the default fallback when no value is set, and `notify` triggers `result.notifyUrl` propagation. Any other string is passed through verbatim for your code to handle.
 
 ```javascript
 const result = await radar.assess('Delete all records', 'data_delete_bulk');
@@ -301,7 +303,7 @@ if (!result.proceed) {
       body: JSON.stringify({ callId: result.callId, verdict: result.verdict })
     });
   }
-  if (result.holdAction !== 'log_only') return; // halt or queue
+  if (result.holdAction !== 'accept') return; // halt, queue, or unknown — don't proceed
 }
 ```
 
