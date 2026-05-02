@@ -131,4 +131,75 @@ describe('classifier — rules engine pre-scorer', () => {
     const result = classify('Delete all credit card payment records for everyone', 'financial', 1.0);
     assert.ok(result.rawTier >= 3);
   });
+
+  // v0.4: stem-based irreversibility signal — catches camelCase API mutations
+  // and noun forms. Validated in experiments/verb-regex-validation.mjs.
+
+  it('camelCase volumeDelete matches irreversibility (v0.4)', () => {
+    const r = classify('curl -X POST graphql/v2 -d mutation { volumeDelete(volumeId)} ', 'external_api_call', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'),
+      `Expected irreversibility signal for volumeDelete, got: ${r.triggerReason}`);
+    assert.ok(r.riskScore > 6, `Expected score > 6 for camelCase delete, got: ${r.riskScore}`);
+  });
+
+  it('camelCase dropTable matches irreversibility (v0.4)', () => {
+    const r = classify('Run dropTable migration on production', 'system_execute', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'),
+      `Expected irreversibility signal for dropTable, got: ${r.triggerReason}`);
+  });
+
+  it('camelCase terminateInstance matches irreversibility (v0.4)', () => {
+    const r = classify('terminateInstance i-abc on AWS', 'system_execute', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'));
+  });
+
+  it('noun form "deletion" matches irreversibility (v0.4)', () => {
+    const r = classify('user deletion completed for tenant', 'data_delete_single', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'),
+      `Expected irreversibility for "deletion", got: ${r.triggerReason}`);
+  });
+
+  it('noun form "destruction" matches irreversibility (v0.4)', () => {
+    const r = classify('Data destruction certified by NIST 800-88', 'data_delete_bulk', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'));
+  });
+
+  it('noun form "revocation" matches irreversibility (v0.4)', () => {
+    const r = classify('token revocation completed', 'external_api_call', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'));
+  });
+
+  it('SQL DROP TABLE matches irreversibility (v0.4)', () => {
+    const r = classify('DROP TABLE customers WHERE inactive', 'system_execute', 0.5);
+    assert.ok(r.triggerReason.includes('irreversibility'));
+  });
+
+  it('"obsolete" does NOT match irreversibility (no "delete" substring)', () => {
+    const r = classify('mark legacy field as obsolete in API docs', 'data_write', 0.5);
+    assert.ok(!r.triggerReason.includes('irreversibility'),
+      `obsolete should not match irreversibility, but did: ${r.triggerReason}`);
+  });
+
+  it('expanded sensitive-data: bearer matches', () => {
+    const r = classify('Validate bearer token in request header', 'external_api_call', 0.5);
+    assert.ok(r.triggerReason.includes('sensitive data'));
+  });
+
+  it('expanded sensitive-data: api_key matches', () => {
+    const r = classify('Read api_key from environment variable', 'data_read', 0.5);
+    assert.ok(r.triggerReason.includes('sensitive data'));
+  });
+
+  it('expanded sensitive-data: ssn matches', () => {
+    const r = classify('Store user ssn in customer profile', 'data_write', 0.5);
+    assert.ok(r.triggerReason.includes('sensitive data'));
+  });
+
+  // Regression: "Call API" must NOT trigger scale (was a bug in earlier v0.4 draft
+  // where lookbehind `(?<=\w)all` matched "all" in "Call")
+  it('"Call API" does NOT trigger scale signal (regression)', () => {
+    const r = classify('Call API endpoint', 'external_api_call', 0.5);
+    assert.ok(!r.triggerReason.includes('scale'),
+      `"Call API" should not trigger scale signal, got: ${r.triggerReason}`);
+  });
 });

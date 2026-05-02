@@ -18,18 +18,44 @@ const BASE_SCORES = {
 
 const KNOWN_TYPES = ACTIVITY_TYPES;
 
+// v0.4: irreversibility pattern uses stem-based + camelCase-aware approach
+// (audit-validated in experiments/verb-regex-validation.mjs). Other signals
+// keep v0.3.x behavior — broadening their patterns introduced false positives
+// (e.g. "Call" matches "all" via lookbehind) without commensurate value, and
+// they weren't part of the audit scope. Sensitive-data signal adds new
+// vocabulary (bearer/token/etc.) but keeps the v0.3.x \bword\b form.
 const RISK_SIGNALS = {
   increase: [
-    { pattern: /\ball\b|\beveryone\b|\bmass\b|\bbulk\b/i,    weight: 3, name: 'scale' },
-    { pattern: /\bdelete\b|\bremove\b|\beirreversible\b/i,    weight: 3, name: 'irreversibility' },
-    { pattern: /\bpublic\b|\bpublish\b|\blive\b/i,            weight: 2, name: 'visibility' },
-    { pattern: /\b\d{4,}\b/,                                  weight: 2, name: 'large numbers' },
-    { pattern: /\bpassword\b|\bcredit\b|\bpayment\b/i,        weight: 4, name: 'sensitive data' }
+    { pattern: /\ball\b|\beveryone\b|\bmass\b|\bbulk\b/i, weight: 3, name: 'scale' },
+    {
+      // Stems: delet, remov, drop, destr (destroy/destruction), terminat,
+      // purg, wip, eradicat, revok (revoke/revoked), revoc (revocation),
+      // truncat, irreversib (irreversible/irreversibly).
+      // Two clauses: standalone at word boundary + camelCase via lookbehind.
+      // Validated against 27 destructive + 16 benign samples — see V04-PLAN.md
+      // "Locked: irreversibility signal regex (v0.4)" for the full audit.
+      // Catches v0.3.x silent misses: volumeDelete, dropTable, terminateInstance,
+      // user deletion, data destruction, token revocation, etc.
+      pattern: /\b(?:delet|remov|drop|destr|terminat|purg|wip|eradicat|revok|revoc|truncat|irreversib)|(?<=\w)(?:delet|remov|drop|destr|terminat|purg|wip|eradicat|revok|revoc|truncat)/i,
+      weight: 3,
+      name: 'irreversibility'
+    },
+    { pattern: /\bpublic\b|\bpublish\b|\blive\b/i, weight: 2, name: 'visibility' },
+    { pattern: /\b\d{4,}\b/, weight: 2, name: 'large numbers' },
+    {
+      // v0.4: expanded sensitive-data vocabulary. Adds bearer/token/secret/
+      // api_key/auth/credential/ssn/social security to existing
+      // password/credit/payment. Word-boundary form (\bword\b) — same FP profile
+      // as v0.3.x, just more terms covered.
+      pattern: /\b(?:password|credit|payment|bearer|token|secret|api[_-]?key|auth|credential|ssn|social[\s_]security)\b/i,
+      weight: 4,
+      name: 'sensitive data'
+    }
   ],
   decrease: [
-    { pattern: /\bdraft\b|\bpreview\b|\btest\b/i,             weight: 3, name: 'reversible' },
-    { pattern: /\binternal\b|\bprivate\b|\bstaging\b/i,       weight: 2, name: 'low visibility' },
-    { pattern: /\bundo\b|\breversible\b|\bcancel\b/i,         weight: 2, name: 'reversibility' }
+    { pattern: /\bdraft\b|\bpreview\b|\btest\b/i, weight: 3, name: 'reversible' },
+    { pattern: /\binternal\b|\bprivate\b|\bstaging\b/i, weight: 2, name: 'low visibility' },
+    { pattern: /\bundo\b|\breversible\b|\bcancel\b/i, weight: 2, name: 'reversibility' }
   ]
 };
 
