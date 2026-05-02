@@ -672,6 +672,18 @@ Different LLM providers follow the T2 prompt instructions with different levels 
 
 This is a model behaviour difference, not a code issue. If your use case requires stricter verdict discipline at T2, Anthropic is currently the more conservative reviewer. The dual-provider architecture lets you choose: use a permissive model for T1 routing and a stricter model for T2 review.
 
+## Ecosystem
+
+**Pixel Agents — visual governance for Claude Code** ([PR #258](https://github.com/pablodelucca/pixel-agents/pull/258), [preview build](https://github.com/ktkorpela-prog/pixel-agents/releases))
+
+Pixel Agents is a VS Code extension that turns Claude Code terminals into animated pixel-art characters in a virtual office. The contribution adds a **Risk Assessment desk** with **Vela** (the first NPC) — when a Claude Code agent calls `radar_assess`, the agent character walks to Vela's desk for a verdict.
+
+- 🟢 PROCEED → green stamp, agent continues
+- 🟡 HOLD → amber stamp, agent waits for user decision
+- 🔴 DENY → red stamp, agent steps back
+
+The integration is dormant if `radar_desk` isn't placed in the layout — no errors, no warnings. Vela appears only when the desk is added.
+
 ## License
 
 MIT licensed and free to use. See [LICENSE](LICENSE).
