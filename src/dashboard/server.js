@@ -258,7 +258,9 @@ export function startDashboard(port = 4040) {
           slider: c.slider_position ?? 0.5,
           human_review: !!c.requires_human_review,
           hold_action: c.hold_action || 'halt',
-          notify_url: c.notify_url || null
+          notify_url: c.notify_url || null,
+          // v0.4: per-activity DENY threshold. null = inherit (no override). 3 = T3+, 4 = T4 only.
+          deny_at_tier: c.deny_at_tier ?? null
         };
       }
 
@@ -442,18 +444,21 @@ export function startDashboard(port = 4040) {
   // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
   app.post('/radar/config', requireSessionToken, async (req, res) => {
     try {
-      const { activities, human_review, hold_actions, notify_urls } = req.body;
+      const { activities, human_review, hold_actions, notify_urls, deny_at_tier } = req.body;
       if (activities) {
         for (const [type, value] of Object.entries(activities)) {
           const slider = typeof value === 'number' ? value : 0.5;
           const hr = human_review && human_review[type] ? true : false;
           const ha = hold_actions && hold_actions[type] ? hold_actions[type] : undefined;
           const nu = notify_urls && notify_urls[type] ? notify_urls[type] : undefined;
+          // v0.4: deny_at_tier — null/3/4. Use `in` so explicit null clears a previous override.
+          const dt = (deny_at_tier && (type in deny_at_tier)) ? deny_at_tier[type] : undefined;
           await register.saveActivityConfig(type, {
             sliderPosition: slider,
             requiresHumanReview: hr,
             holdAction: ha,
-            notifyUrl: nu
+            notifyUrl: nu,
+            denyAtTier: dt
           });
         }
       }
@@ -681,6 +686,31 @@ export function startDashboard(port = 4040) {
     env.RADAR_ENABLED = enabled ? 'true' : 'false';
     writeEnv(env);
     process.env.RADAR_ENABLED = enabled ? 'true' : 'false';
+    res.json({ success: true, enabled: !!enabled });
+  });
+
+  // --- v0.4: T3_T4_REQUIRE_LLM2 toggle ---
+  // Mirrors the radar-enabled pattern. Default false in v0.4.0; will become
+  // default true in v0.5.0 (~30+ days). Surface in dashboard Settings → LLM Config
+  // so operators can see whether they're on dual-LLM review path or v0.3.x single-LLM.
+
+  app.get('/dashboard/t3-t4-require-llm2', (req, res) => {
+    const env = readEnv();
+    // Strict equality with 'true' — anything else (including 'false', empty, missing) → false
+    const enabled = (env.T3_T4_REQUIRE_LLM2 || process.env.T3_T4_REQUIRE_LLM2 || 'false').toLowerCase() === 'true';
+    // Also report whether T2 is configured — informational, helps operators know
+    // whether enabling will actually work or trigger 'llm2_required' HOLDs.
+    const t2KeyConfigured = !!(env.T2_API_KEY || process.env.T2_API_KEY);
+    res.json({ enabled, t2_key_configured: t2KeyConfigured });
+  });
+
+  // localhost-only — protected by server binding to 127.0.0.1 in app.listen()
+  app.post('/dashboard/t3-t4-require-llm2', requireSessionToken, (req, res) => {
+    const { enabled } = req.body;
+    const env = readEnv();
+    env.T3_T4_REQUIRE_LLM2 = enabled ? 'true' : 'false';
+    writeEnv(env);
+    process.env.T3_T4_REQUIRE_LLM2 = enabled ? 'true' : 'false';
     res.json({ success: true, enabled: !!enabled });
   });
 
