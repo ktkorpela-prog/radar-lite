@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { CONSERVATIVE_DENY_DEFAULTS } from './constants.js';
 
 let db = null;
 let dbPath = null;
@@ -64,6 +65,14 @@ async function ensureDb() {
   try { db.run('ALTER TABLE assessments ADD COLUMN radar_enabled INTEGER DEFAULT 1'); } catch (e) {}
   try { db.run("ALTER TABLE assessments ADD COLUMN strategy_scope TEXT DEFAULT 'single'"); } catch (e) {}
   try { db.run('ALTER TABLE assessments ADD COLUMN agent_id TEXT'); } catch (e) {}
+  // v0.4 schema additions — all NULLable, idempotent ALTER pattern.
+  // These fields surface dual-LLM review (llm1/llm2 recommendations + agreement)
+  // and policy compliance check results from Phase B. Existing rows keep NULL.
+  try { db.run('ALTER TABLE assessments ADD COLUMN llm1_recommended TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN llm2_recommended TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN agreement INTEGER DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN policy_check_compliant INTEGER DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN policy_violations TEXT DEFAULT NULL'); } catch (e) {}
   db.run('CREATE INDEX IF NOT EXISTS idx_activity ON assessments(activity_type)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tier ON assessments(tier)');
   db.run('CREATE INDEX IF NOT EXISTS idx_created ON assessments(created_at)');
@@ -92,6 +101,14 @@ async function ensureDb() {
   // Migration: add hold_action and notify_url if upgrading
   try { db.run('ALTER TABLE activity_config ADD COLUMN hold_action TEXT DEFAULT \'halt\''); } catch (e) {}
   try { db.run('ALTER TABLE activity_config ADD COLUMN notify_url TEXT DEFAULT NULL'); } catch (e) {}
+  // v0.4: deny_at_tier (NULL/3/4) — operator-configured DENY threshold for this activity.
+  // NULL = no activity-level deny override. Conservative defaults exist in
+  // CONSERVATIVE_DENY_DEFAULTS but are NOT auto-applied; operator opts in via dashboard.
+  try { db.run('ALTER TABLE activity_config ADD COLUMN deny_at_tier INTEGER DEFAULT NULL'); } catch (e) {}
+  // v0.4 Phase B: per-activity policy upload columns. NULL/empty = no policy.
+  try { db.run('ALTER TABLE activity_config ADD COLUMN policy_content TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE activity_config ADD COLUMN policy_enabled INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.run('ALTER TABLE activity_config ADD COLUMN policy_updated_at TEXT DEFAULT NULL'); } catch (e) {}
 
   db.run(`
     CREATE TABLE IF NOT EXISTS activity_config_history (
@@ -140,8 +157,13 @@ function singleValue(result) {
 export async function save(assessment) {
   const db = await ensureDb();
   db.run(
-    `INSERT INTO assessments (id, action_hash, activity_type, tier, risk_score, verdict, policy_decision, radar_enabled, agent_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO assessments (
+       id, action_hash, activity_type, tier, risk_score, verdict, policy_decision,
+       radar_enabled, agent_id, created_at,
+       llm1_recommended, llm2_recommended, agreement,
+       policy_check_compliant, policy_violations
+     )
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       assessment.callId,
       assessment.actionHash,
@@ -152,7 +174,13 @@ export async function save(assessment) {
       assessment.policyDecision || 'assess',
       assessment.radarEnabled !== undefined ? (assessment.radarEnabled ? 1 : 0) : 1,
       assessment.agentId || null,
-      new Date().toISOString()
+      new Date().toISOString(),
+      // v0.4 fields — all nullable. Existing call sites that don't pass these get NULL.
+      assessment.llm1Recommended || null,
+      assessment.llm2Recommended || null,
+      assessment.agreement === undefined ? null : (assessment.agreement ? 1 : 0),
+      assessment.policyCheckCompliant === undefined ? null : (assessment.policyCheckCompliant ? 1 : 0),
+      assessment.policyViolations ? JSON.stringify(assessment.policyViolations) : null
     ]
   );
   persistDb();
@@ -336,6 +364,11 @@ export async function saveActivityConfig(activityType, config, agentId = null) {
   const newHR = config.requiresHumanReview ? 1 : 0;
   const newHoldAction = config.holdAction ?? existing?.hold_action ?? 'halt';
   const newNotifyUrl = config.notifyUrl ?? existing?.notify_url ?? null;
+  // v0.4: deny_at_tier — NULL/3/4. Validate. NULL means no activity-level deny override.
+  let newDenyAtTier = config.denyAtTier !== undefined ? config.denyAtTier : (existing?.deny_at_tier ?? null);
+  if (newDenyAtTier !== null && newDenyAtTier !== 3 && newDenyAtTier !== 4) {
+    throw new Error(`Invalid denyAtTier: ${newDenyAtTier}. Must be null, 3, or 4.`);
+  }
 
   if (existing) {
     // Track changes to hold_action and notify_url
@@ -345,14 +378,20 @@ export async function saveActivityConfig(activityType, config, agentId = null) {
     if (existing.notify_url !== newNotifyUrl) {
       recordConfigChange(db, activityType, 'notify_url', existing.notify_url, newNotifyUrl, agentId);
     }
+    if ((existing.deny_at_tier ?? null) !== newDenyAtTier) {
+      recordConfigChange(db, activityType, 'deny_at_tier',
+        existing.deny_at_tier == null ? 'null' : String(existing.deny_at_tier),
+        newDenyAtTier == null ? 'null' : String(newDenyAtTier),
+        agentId);
+    }
     db.run(
-      `UPDATE activity_config SET slider_position = ?, requires_human_review = ?, hold_action = ?, notify_url = ?, updated_at = ? WHERE activity_type = ?`,
-      [newSlider, newHR, newHoldAction, newNotifyUrl, now, activityType]
+      `UPDATE activity_config SET slider_position = ?, requires_human_review = ?, hold_action = ?, notify_url = ?, deny_at_tier = ?, updated_at = ? WHERE activity_type = ?`,
+      [newSlider, newHR, newHoldAction, newNotifyUrl, newDenyAtTier, now, activityType]
     );
   } else {
     db.run(
-      `INSERT INTO activity_config (activity_type, slider_position, requires_human_review, hold_action, notify_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [activityType, newSlider, newHR, newHoldAction, newNotifyUrl, now, now]
+      `INSERT INTO activity_config (activity_type, slider_position, requires_human_review, hold_action, notify_url, deny_at_tier, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [activityType, newSlider, newHR, newHoldAction, newNotifyUrl, newDenyAtTier, now, now]
     );
   }
   persistDb();
@@ -371,4 +410,51 @@ export async function listActivityConfigs() {
   const db = await ensureDb();
   const result = db.exec('SELECT * FROM activity_config ORDER BY activity_type ASC');
   return rowsToObjects(result);
+}
+
+// v0.4: apply recommended conservative defaults to high-stakes activity types.
+// Only updates activities where deny_at_tier is currently NULL (no operator override).
+// Activities with explicit operator-set deny_at_tier are preserved untouched.
+// Returns: { applied: [...activityTypes], skipped: [...activityTypes] }
+export async function applyRecommendedDefaults(agentId = null) {
+  const applied = [];
+  const skipped = [];
+  for (const [activityType, recommendedTier] of Object.entries(CONSERVATIVE_DENY_DEFAULTS)) {
+    const existing = await getActivityConfig(activityType);
+    // Skip if operator has already set deny_at_tier explicitly (any value, including NULL after explicit clear)
+    // We can't distinguish "never set" from "explicitly cleared to NULL" — so we only apply
+    // when there's no row at all OR the row has deny_at_tier IS NULL AND the row was created
+    // by the system (no explicit operator interaction). Pragmatic rule: apply if deny_at_tier IS NULL.
+    if (existing && existing.deny_at_tier !== null && existing.deny_at_tier !== undefined) {
+      skipped.push({ activityType, reason: `operator-set deny_at_tier=${existing.deny_at_tier}` });
+      continue;
+    }
+    await saveActivityConfig(activityType, { denyAtTier: recommendedTier }, agentId);
+    applied.push({ activityType, denyAtTier: recommendedTier });
+  }
+  return { applied, skipped };
+}
+
+// v0.4: dry-run preview of recommended defaults — what would change without writing.
+// Used by `npx radar-lite migrate --dry-run` and dashboard "Preview changes" button.
+export async function previewRecommendedDefaults() {
+  const preview = { wouldApply: [], wouldSkip: [] };
+  for (const [activityType, recommendedTier] of Object.entries(CONSERVATIVE_DENY_DEFAULTS)) {
+    const existing = await getActivityConfig(activityType);
+    if (existing && existing.deny_at_tier !== null && existing.deny_at_tier !== undefined) {
+      preview.wouldSkip.push({
+        activityType,
+        currentDenyAtTier: existing.deny_at_tier,
+        recommendedDenyAtTier: recommendedTier,
+        reason: 'operator-set value preserved'
+      });
+    } else {
+      preview.wouldApply.push({
+        activityType,
+        currentDenyAtTier: existing?.deny_at_tier ?? null,
+        recommendedDenyAtTier: recommendedTier
+      });
+    }
+  }
+  return preview;
 }
