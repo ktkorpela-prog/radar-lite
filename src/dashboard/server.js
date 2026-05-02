@@ -474,6 +474,97 @@ export function startDashboard(port = 4040) {
     }
   });
 
+  // --- v0.4 Phase B: per-activity policy upload (free tier) ---
+
+  // GET /dashboard/policies — returns policy state for ALL activity types,
+  // including types with no policy uploaded (empty content).
+  app.get('/dashboard/policies', async (req, res) => {
+    try {
+      const { ACTIVITY_TYPES, FREE_POLICY_CHAR_CAP } = await import('../constants.js');
+      const configs = await register.listActivityConfigs();
+      const byType = new Map(configs.map(c => [c.activity_type, c]));
+      const policies = ACTIVITY_TYPES.map(activityType => {
+        const cfg = byType.get(activityType);
+        const content = cfg?.policy_content || '';
+        return {
+          activityType,
+          policyContent: content,
+          policyEnabled: !!(cfg?.policy_enabled),
+          policyUpdatedAt: cfg?.policy_updated_at || null,
+          charCount: content.length,
+          charCap: FREE_POLICY_CHAR_CAP,
+          // Approximate token count for cost transparency. ~4 chars per token average.
+          estimatedTokens: Math.ceil(content.length / 4)
+        };
+      });
+      res.json({ policies, charCap: FREE_POLICY_CHAR_CAP });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /dashboard/policies/:activityType — body: { content, enabled }
+  // Validates content length against FREE_POLICY_CHAR_CAP. Returns 400 if exceeded.
+  // localhost-only — protected by server binding to 127.0.0.1; gated by session token
+  // when DASHBOARD_PASSWORD is set.
+  app.post('/dashboard/policies/:activityType', requireSessionToken, async (req, res) => {
+    try {
+      const { ACTIVITY_TYPES, FREE_POLICY_CHAR_CAP } = await import('../constants.js');
+      const { activityType } = req.params;
+      const { content, enabled } = req.body;
+
+      if (!ACTIVITY_TYPES.includes(activityType)) {
+        return res.status(400).json({
+          error: `Invalid activity type "${activityType}". Valid: ${ACTIVITY_TYPES.join(', ')}`
+        });
+      }
+      if (typeof content !== 'string') {
+        return res.status(400).json({ error: 'content must be a string' });
+      }
+      if (content.length > FREE_POLICY_CHAR_CAP) {
+        return res.status(400).json({
+          error: `Policy content exceeds free tier cap (${content.length} / ${FREE_POLICY_CHAR_CAP} chars). Trim to fit, or upgrade for unlimited.`,
+          charCount: content.length,
+          charCap: FREE_POLICY_CHAR_CAP
+        });
+      }
+      await register.saveActivityConfig(activityType, {
+        policyContent: content || null,
+        policyEnabled: !!enabled
+      });
+      res.json({
+        success: true,
+        activityType,
+        charCount: content.length,
+        charCap: FREE_POLICY_CHAR_CAP,
+        estimatedTokens: Math.ceil(content.length / 4)
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /dashboard/policies/:activityType — clears the policy entirely.
+  // localhost-only; gated by session token.
+  app.delete('/dashboard/policies/:activityType', requireSessionToken, async (req, res) => {
+    try {
+      const { ACTIVITY_TYPES } = await import('../constants.js');
+      const { activityType } = req.params;
+      if (!ACTIVITY_TYPES.includes(activityType)) {
+        return res.status(400).json({
+          error: `Invalid activity type "${activityType}". Valid: ${ACTIVITY_TYPES.join(', ')}`
+        });
+      }
+      await register.saveActivityConfig(activityType, {
+        policyContent: null,
+        policyEnabled: false
+      });
+      res.json({ success: true, activityType });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // --- Dashboard auth & config endpoints ---
 
   app.get('/dashboard/auth-mode', (req, res) => {

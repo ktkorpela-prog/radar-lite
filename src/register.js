@@ -369,6 +369,22 @@ export async function saveActivityConfig(activityType, config, agentId = null) {
   if (newDenyAtTier !== null && newDenyAtTier !== 3 && newDenyAtTier !== 4) {
     throw new Error(`Invalid denyAtTier: ${newDenyAtTier}. Must be null, 3, or 4.`);
   }
+  // v0.4 Phase B: per-activity policy upload. Free tier capped at FREE_POLICY_CHAR_CAP chars.
+  // Cap enforced server-side (this function); HTTP endpoint also enforces with 400 response.
+  const { FREE_POLICY_CHAR_CAP } = await import('./constants.js');
+  let newPolicyContent = config.policyContent !== undefined
+    ? (config.policyContent === null ? null : String(config.policyContent))
+    : (existing?.policy_content ?? null);
+  if (newPolicyContent !== null && newPolicyContent.length > FREE_POLICY_CHAR_CAP) {
+    throw new Error(`Policy content exceeds free tier cap (${newPolicyContent.length} / ${FREE_POLICY_CHAR_CAP} chars). Trim to fit, or upgrade for unlimited.`);
+  }
+  const newPolicyEnabled = config.policyEnabled !== undefined
+    ? (config.policyEnabled ? 1 : 0)
+    : (existing?.policy_enabled ?? 0);
+  // Update timestamp only when content or enabled flag actually changed
+  const policyChanged = (existing?.policy_content ?? null) !== newPolicyContent ||
+                        (existing?.policy_enabled ?? 0) !== newPolicyEnabled;
+  const newPolicyUpdatedAt = policyChanged ? now : (existing?.policy_updated_at ?? null);
 
   if (existing) {
     // Track changes to hold_action and notify_url
@@ -384,14 +400,20 @@ export async function saveActivityConfig(activityType, config, agentId = null) {
         newDenyAtTier == null ? 'null' : String(newDenyAtTier),
         agentId);
     }
+    if (policyChanged) {
+      recordConfigChange(db, activityType, 'policy_content',
+        existing.policy_content == null ? 'null' : `${existing.policy_content.length} chars`,
+        newPolicyContent == null ? 'null' : `${newPolicyContent.length} chars`,
+        agentId);
+    }
     db.run(
-      `UPDATE activity_config SET slider_position = ?, requires_human_review = ?, hold_action = ?, notify_url = ?, deny_at_tier = ?, updated_at = ? WHERE activity_type = ?`,
-      [newSlider, newHR, newHoldAction, newNotifyUrl, newDenyAtTier, now, activityType]
+      `UPDATE activity_config SET slider_position = ?, requires_human_review = ?, hold_action = ?, notify_url = ?, deny_at_tier = ?, policy_content = ?, policy_enabled = ?, policy_updated_at = ?, updated_at = ? WHERE activity_type = ?`,
+      [newSlider, newHR, newHoldAction, newNotifyUrl, newDenyAtTier, newPolicyContent, newPolicyEnabled, newPolicyUpdatedAt, now, activityType]
     );
   } else {
     db.run(
-      `INSERT INTO activity_config (activity_type, slider_position, requires_human_review, hold_action, notify_url, deny_at_tier, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [activityType, newSlider, newHR, newHoldAction, newNotifyUrl, newDenyAtTier, now, now]
+      `INSERT INTO activity_config (activity_type, slider_position, requires_human_review, hold_action, notify_url, deny_at_tier, policy_content, policy_enabled, policy_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [activityType, newSlider, newHR, newHoldAction, newNotifyUrl, newDenyAtTier, newPolicyContent, newPolicyEnabled, newPolicyUpdatedAt, now, now]
     );
   }
   persistDb();

@@ -282,6 +282,115 @@ describe('v0.4 — deny_at_tier per-activity DENY', () => {
   });
 });
 
+describe('v0.4 Phase B — per-activity policy upload (saveActivityConfig)', () => {
+  // These verify the storage-level policy fields (policy_content, policy_enabled,
+  // policy_updated_at) and the FREE_POLICY_CHAR_CAP enforcement at the
+  // saveActivityConfig layer. HTTP endpoint enforcement is similar but separate.
+
+  it('saveActivityConfig accepts policyContent and policyEnabled', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    await saveActivityConfig('email_bulk', {
+      sliderPosition: 0.5,
+      policyContent: 'Mass emails over 10K recipients require legal review.',
+      policyEnabled: true
+    });
+    const cfg = await getActivityConfig('email_bulk');
+    assert.equal(cfg.policy_content, 'Mass emails over 10K recipients require legal review.');
+    assert.equal(cfg.policy_enabled, 1);
+    assert.ok(cfg.policy_updated_at);  // ISO timestamp set
+  });
+
+  it('saveActivityConfig rejects policy content exceeding 2000 chars', async () => {
+    const { saveActivityConfig } = await import('../src/register.js');
+    const tooLong = 'x'.repeat(2001);
+    await assert.rejects(
+      () => saveActivityConfig('email_bulk', {
+        sliderPosition: 0.5,
+        policyContent: tooLong,
+        policyEnabled: true
+      }),
+      { message: /exceeds free tier cap/ }
+    );
+  });
+
+  it('saveActivityConfig accepts content at exactly the cap boundary', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    const atCap = 'x'.repeat(2000);
+    await saveActivityConfig('publish', {
+      sliderPosition: 0.5,
+      policyContent: atCap,
+      policyEnabled: true
+    });
+    const cfg = await getActivityConfig('publish');
+    assert.equal(cfg.policy_content.length, 2000);
+  });
+
+  it('saveActivityConfig with policyContent=null clears policy', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    // Set a policy first
+    await saveActivityConfig('publish', {
+      sliderPosition: 0.5,
+      policyContent: 'Some policy text',
+      policyEnabled: true
+    });
+    // Clear it
+    await saveActivityConfig('publish', {
+      policyContent: null,
+      policyEnabled: false
+    });
+    const cfg = await getActivityConfig('publish');
+    assert.equal(cfg.policy_content, null);
+    assert.equal(cfg.policy_enabled, 0);
+  });
+
+  it('saveActivityConfig preserves existing policy when policyContent not in config', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    await saveActivityConfig('financial', {
+      sliderPosition: 0.9,
+      policyContent: 'Refunds <$1K can proceed.',
+      policyEnabled: true
+    });
+    // Update slider only — policy should be preserved
+    await saveActivityConfig('financial', {
+      sliderPosition: 0.7
+    });
+    const cfg = await getActivityConfig('financial');
+    assert.equal(cfg.policy_content, 'Refunds <$1K can proceed.');
+    assert.equal(cfg.policy_enabled, 1);
+    assert.equal(cfg.slider_position, 0.7);
+  });
+
+  it('policy_updated_at changes only when policy actually changes', async () => {
+    const { saveActivityConfig, getActivityConfig } = await import('../src/register.js');
+    await saveActivityConfig('data_write', {
+      sliderPosition: 0.5,
+      policyContent: 'Test policy.',
+      policyEnabled: true
+    });
+    const cfg1 = await getActivityConfig('data_write');
+    const ts1 = cfg1.policy_updated_at;
+
+    // Wait briefly to ensure ISO timestamp would differ if updated
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    // Update slider, NOT policy — policy_updated_at should NOT change
+    await saveActivityConfig('data_write', { sliderPosition: 0.6 });
+    const cfg2 = await getActivityConfig('data_write');
+    assert.equal(cfg2.policy_updated_at, ts1, 'policy_updated_at should not change when policy is unchanged');
+
+    // Now actually change the policy
+    await new Promise(resolve => setTimeout(resolve, 5));
+    await saveActivityConfig('data_write', { policyContent: 'Updated policy.' });
+    const cfg3 = await getActivityConfig('data_write');
+    assert.notEqual(cfg3.policy_updated_at, ts1, 'policy_updated_at should change when policy changes');
+  });
+
+  it('FREE_POLICY_CHAR_CAP is exported and equals 2000', async () => {
+    const { FREE_POLICY_CHAR_CAP } = await import('../src/constants.js');
+    assert.equal(FREE_POLICY_CHAR_CAP, 2000);
+  });
+});
+
 describe('v0.4 — T3_T4_REQUIRE_LLM2 gate', () => {
   // These tests verify the gate logic without requiring real LLM calls.
   // The gate fires BEFORE any LLM call, so testing it is purely deterministic.
