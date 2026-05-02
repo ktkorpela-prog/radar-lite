@@ -150,6 +150,34 @@ The following v0.1 types still work but log a deprecation warning:
 
 `financial` is unchanged.
 
+## Policy upload (v0.4.1)
+
+Each activity type can have an uploaded policy that Vela checks against. When a policy is uploaded for an activity, RADAR adds an **additional LLM call** to every assessment of that activity type — including T1 actions that would otherwise be cheap.
+
+**Cost implication:** without a policy, a T1 assessment of activity `X` is one LLM call (the oneliner). With a policy uploaded for `X`, every T1 assessment of `X` becomes two LLM calls (oneliner + policy compliance check). This is the operator's choice when uploading a policy.
+
+The dashboard surfaces the estimated added token count per assessment in the policy editor (Settings tab → expand any activity → Policy panel). Approximate cost: 4 chars ≈ 1 token; multiply by your provider's input-token rate to estimate the per-assessment delta.
+
+| Tier | Cap | Notes |
+|------|-----|-------|
+| Free | 2,000 chars per activity policy | One policy per activity |
+| Paid | Hosted policy library, multi-policy per activity, no practical cap | Centrally versioned |
+
+Uploading a policy is opt-in. To remove the added LLM call, delete or disable the policy from the dashboard.
+
+## T3/T4 review — `scopeHygiene` is advisory
+
+T3/T4 server-side review responses include a `scopeHygiene` field. It asks the reviewing LLM whether the action description, `activity_type`, and trigger reason are mutually consistent — for example, whether an action described as "delete one record" was correctly classified as `data_delete_single` rather than `data_delete_bulk`.
+
+**Scope hygiene checks are advisory, not authoritative.**
+
+The check is a best-effort prompt instruction. Different LLM providers attend to it differently. In our internal validation:
+
+- Anthropic models flagged scope mismatches reliably (3/7)
+- OpenAI models defaulted to "no issues" more often (0/7)
+
+Treat `scopeHygiene` as a useful signal **when it fires**, but do not build workflows that assume `scopeHygiene.issuesDetected === false` means "clean." Absence of detection is not certainty of absence. Use this field to surface concerns, not to confirm safety.
+
 ## How it works
 
 Every call to `radar.assess()` follows this flow:

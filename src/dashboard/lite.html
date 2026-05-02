@@ -242,6 +242,10 @@
   .policy-counter.warn { color: #fbbf24; }
   .policy-counter.over { color: #f87171; font-weight: 600; }
   .policy-cost { font-size: 11px; color: #666; margin-top: 6px; line-height: 1.5; }
+  .policy-cost.box { color: #c0bdb8; padding: 8px 12px; background: rgba(196, 148, 58, 0.05); border: 1px solid rgba(196, 148, 58, 0.25); border-left: 2px solid #c4943a; border-radius: 3px; margin-top: 8px; }
+  .policy-cost.box strong { color: #f0ede8; font-weight: 600; }
+  .policy-cost .delta { color: #c4943a; font-weight: 600; }
+  .policy-cost .extra { display: block; font-size: 10px; color: #909090; margin-top: 4px; }
   .policy-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .policy-btn { background: #161616; border: 1px solid #2a2a2a; border-radius: 4px; padding: 6px 12px; color: #c0bdb8; font-size: 12px; cursor: pointer; transition: all 0.15s; }
   .policy-btn:hover:not(:disabled) { border-color: #c4943a; color: #f0ede8; }
@@ -2361,7 +2365,7 @@ function renderPolicyPanel(activity) {
         <span class="policy-counter" id="policy-counter-${activity}">${p.charCount}/${policyCharCap}</span>
         <span class="meta">${updated}</span>
       </div>
-      <div class="policy-cost" id="policy-cost-${activity}">${hasPolicy ? `Each assessment of <code>${esc(activity)}</code> includes ~${p.estimatedTokens} additional tokens of policy context.` : 'Estimated added cost per assessment will appear as you type.'}</div>
+      <div class="policy-cost${hasPolicy ? ' box' : ''}" id="policy-cost-${activity}">${hasPolicy ? `<strong>Adds 1 LLM call</strong> to every assessment of <code>${esc(activity)}</code> &mdash; <span class="delta">~${p.estimatedTokens} tokens</span> of policy context per call.<span class="extra">Without a policy, T1 actions are 1 call (oneliner). With a policy, T1 becomes 2 calls (oneliner + compliance check). Cost varies by provider.</span>` : 'Estimated added cost per assessment will appear as you type.'}</div>
       <div class="policy-upgrade" id="policy-upgrade-${activity}" style="display:none">Free tier supports concise policies (${policyCharCap} chars). For full compliance documents, see <a href="https://radar.essentianlabs.com#paid" target="_blank" rel="noopener">paid plan</a>.</div>
       <div class="policy-actions">
         <button class="policy-btn primary" id="policy-save-${activity}" onclick="savePolicy('${activity}')" disabled>Save</button>
@@ -2399,9 +2403,13 @@ function onPolicyInput(activity) {
     counter.classList.toggle('over', overCap);
   }
   if (cost) {
-    cost.innerHTML = len === 0
-      ? 'Estimated added cost per assessment will appear as you type.'
-      : `Saving this policy will add ~${tokens} tokens to every assessment of <code>${esc(activity)}</code>.`;
+    if (len === 0) {
+      cost.classList.remove('box');
+      cost.innerHTML = 'Estimated added cost per assessment will appear as you type.';
+    } else {
+      cost.classList.add('box');
+      cost.innerHTML = `<strong>Saving will add 1 LLM call</strong> to every assessment of <code>${esc(activity)}</code> &mdash; <span class="delta">~${tokens} tokens</span> of policy context per call.<span class="extra">Without a policy, T1 actions are 1 call (oneliner). With a policy, T1 becomes 2 calls (oneliner + compliance check). Cost varies by provider.</span>`;
+    }
   }
   if (upgrade) upgrade.style.display = overCap ? 'block' : 'none';
   // Save button: enabled only if changed AND within cap
