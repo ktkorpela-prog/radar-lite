@@ -1,6 +1,6 @@
 {
   "name": "@essentianlabs/radar-lite",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "Pre-action risk assessment for AI agents. PROCEED, HOLD, or DENY — local, private, no data sent to EssentianLabs.",
   "type": "module",
   "main": "src/index.js",
