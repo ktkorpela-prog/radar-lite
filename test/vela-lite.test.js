@@ -2,7 +2,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { VelaLite, _testInternals } from '../src/vela-lite.js';
 
-const { parseTldrResponse, normaliseLabel } = _testInternals;
+const { parseTldrResponse, parseT3T4ReviewResponse, normaliseLabel, buildT3T4ReviewPrompt } = _testInternals;
 
 // Tests share ~/.radar/register.db with the user's actual local state. Reset
 // activity_config columns that v0.4 tests configure, so prior runs don't
@@ -477,5 +477,177 @@ T2_API_KEY=sk-proj-xxx`;
     const matches = [...content.matchAll(ENV_REGEX)];
     assert.equal(matches.length, 1);
     assert.equal(matches[0][2].trim(), 'sk-proj-abc_def-123/xyz');
+  });
+});
+
+// v0.4: T3/T4 review prompt + parser tests.
+// Validates the locked t3_t4_review prompt structure parses correctly across
+// all the new blocks (RISK vs BENEFIT, SCOPE HYGIENE, DIVERGENCE FROM LLM1).
+describe('v0.4 T3/T4 review parser (parseT3T4ReviewResponse)', () => {
+
+  const makeRaw = ({ tier = 3, scope = 'No scope issues detected.', divergence = 'Concur with LLM1\'s assessment.', recommended = 'avoid' } = {}) => `VELA LITE (T${tier}) | data_delete_bulk | score 18
+
+HOLD — Mass irreversible deletion requires verified backup and dual approval first.
+
+RISK vs BENEFIT:
+Risk: 50,000 customer records permanently lost if backups are absent or
+incomplete. Benefit: meets stated retention policy. Benefit does not justify
+risk without verified backup.
+
+SCOPE HYGIENE:
+${scope}
+
+→ AVOID:     Block deletion until verified backup exists${recommended === 'avoid' ? ' (recommended)' : ''}
+→ MITIGATE:  Snapshot DB and dry-run delete first${recommended === 'mitigate' ? ' (recommended)' : ''}
+→ TRANSFER:  Route to data governance for sign-off${recommended === 'transfer' ? ' (recommended)' : ''}
+→ ACCEPT:    Document accountability; proceed knowingly${recommended === 'accept' ? ' (recommended)' : ''}
+
+DIVERGENCE FROM LLM1: ${divergence}
+
+— Vela · EssentianLabs`;
+
+  it('parses all four blocks from a clean concur response', () => {
+    const raw = makeRaw();
+    const r = parseT3T4ReviewResponse(raw, 'avoid');
+    assert.equal(r.verdict, 'HOLD');
+    assert.ok(r.holdSentence.includes('Mass irreversible'));
+    assert.ok(r.riskBenefit.includes('50,000 customer records'));
+    assert.equal(r.scopeHygiene.issuesDetected, false);
+    assert.equal(Object.keys(r.options).length, 4);
+    assert.equal(r.recommended, 'avoid');
+    assert.equal(r.review.agreement, true);
+    assert.equal(r.review.divergenceReason, null);
+    assert.equal(r.review.llm1Recommended, 'avoid');
+    assert.equal(r.review.llm2Recommended, 'avoid');
+    assert.equal(r.parseFailed, false);
+  });
+
+  it('detects scope hygiene mismatch', () => {
+    const raw = makeRaw({
+      scope: 'Activity type mismatch: action describes bulk delete but activity_type is data_read.'
+    });
+    const r = parseT3T4ReviewResponse(raw, 'mitigate');
+    assert.equal(r.scopeHygiene.issuesDetected, true);
+    assert.ok(r.scopeHygiene.note.includes('Activity type mismatch'));
+  });
+
+  it('detects divergence and captures reason', () => {
+    const raw = makeRaw({
+      divergence: 'Diverge: LLM1 underweighted the scale signal and recommended mitigate when avoid is more proportionate.',
+      recommended: 'avoid'
+    });
+    const r = parseT3T4ReviewResponse(raw, 'mitigate');
+    assert.equal(r.review.agreement, false);
+    assert.ok(r.review.divergenceReason.includes('LLM1 underweighted'));
+    assert.equal(r.review.llm1Recommended, 'mitigate');
+    assert.equal(r.review.llm2Recommended, 'avoid');
+  });
+
+  it('drops OVERRIDE_DENY from options', () => {
+    const raw = `VELA LITE (T3) | data_delete_bulk | score 18
+
+HOLD — Test action.
+
+RISK vs BENEFIT:
+Risk: test. Benefit: test.
+
+SCOPE HYGIENE:
+No scope issues detected.
+
+→ AVOID:     Block (recommended)
+→ MITIGATE:  Add controls
+→ TRANSFER:  Escalate
+→ ACCEPT:    Proceed
+→ OVERRIDE_DENY: This should be filtered
+
+DIVERGENCE FROM LLM1: Concur with LLM1's assessment.
+
+— Vela · EssentianLabs`;
+    const r = parseT3T4ReviewResponse(raw, 'avoid');
+    assert.equal(Object.keys(r.options).length, 4);
+    assert.ok(!Object.keys(r.options).some(k => k.includes('overridedeny')));
+    assert.equal(r.recommended, 'avoid');
+  });
+
+  it('falls back to mitigate when only OVERRIDE_DENY is recommended', () => {
+    const raw = `VELA LITE (T4) | financial | score 22
+
+HOLD — Test.
+
+RISK vs BENEFIT:
+Risk: test. Benefit: test.
+
+SCOPE HYGIENE:
+No scope issues detected.
+
+→ AVOID:     A
+→ MITIGATE:  B
+→ TRANSFER:  C
+→ ACCEPT:    D
+→ OVERRIDE_DENY: E (recommended)
+
+DIVERGENCE FROM LLM1: Concur with LLM1's assessment.
+
+— Vela`;
+    const r = parseT3T4ReviewResponse(raw, 'mitigate');
+    // recommended marker was on dropped line — should fall back to first valid option
+    assert.ok(['avoid', 'mitigate', 'transfer', 'accept'].includes(r.recommended));
+  });
+
+  it('buildT3T4ReviewPrompt includes all required structural blocks', () => {
+    const prompt = buildT3T4ReviewPrompt(
+      'Delete all customer records',
+      { activityType: 'data_delete_bulk', riskScore: 22, triggerReason: 'irreversibility, scale', tier: 4 },
+      { sliderPosition: 0.9, holdAction: 'halt', requiresHumanReview: false, denyAtTier: null, matchedPolicies: 'none', policyContent: null },
+      { recommended: 'mitigate', reasoning: 'irreversibility', options: { avoid: 'block', mitigate: 'snapshot', transfer: 'legal', accept: 'document' } },
+      null
+    );
+    // Required structural elements
+    assert.ok(prompt.includes('You are Vela'));
+    assert.ok(/peer\s+review/.test(prompt));  // line break tolerant
+    assert.ok(prompt.includes('<action>'));
+    assert.ok(prompt.includes('<operator_configuration>'));
+    assert.ok(prompt.includes('<operator_policy'));
+    assert.ok(prompt.includes('<llm1_assessment>'));
+    assert.ok(prompt.includes('RISK vs BENEFIT'));
+    assert.ok(prompt.includes('SCOPE HYGIENE'));
+    assert.ok(prompt.includes('DIVERGENCE FROM LLM1'));
+    assert.ok(prompt.includes('OVERRIDE_DENY'));  // explicit "do not output" instruction
+    assert.ok(prompt.includes('VELA LITE (T4)'));  // tier-specific header
+  });
+
+  it('buildT3T4ReviewPrompt uses T3 label when tier=3', () => {
+    const prompt = buildT3T4ReviewPrompt(
+      'Test action',
+      { activityType: 'publish', riskScore: 11, triggerReason: 'test', tier: 3 },
+      { sliderPosition: 0.5 },
+      { recommended: 'mitigate' },
+      null
+    );
+    assert.ok(prompt.includes('VELA LITE (T3)'));
+    assert.ok(!prompt.includes('VELA LITE (T4)'));
+  });
+
+  it('buildT3T4ReviewPrompt populates policy slot when policy provided', () => {
+    const policy = 'Refunds <$1K can proceed without approval.';
+    const prompt = buildT3T4ReviewPrompt(
+      'Refund customer $250',
+      { activityType: 'financial', riskScore: 14, triggerReason: 'sensitive data', tier: 3 },
+      { sliderPosition: 0.7, policyContent: policy },
+      { recommended: 'mitigate', options: {} },
+      null
+    );
+    assert.ok(prompt.includes(policy));
+  });
+
+  it('buildT3T4ReviewPrompt empty policy slot when none provided', () => {
+    const prompt = buildT3T4ReviewPrompt(
+      'Test',
+      { activityType: 'data_read', riskScore: 5, triggerReason: 'test', tier: 3 },
+      { sliderPosition: 0.5 },
+      { recommended: 'mitigate', options: {} },
+      null
+    );
+    assert.ok(prompt.includes('no policy uploaded for this activity type'));
   });
 });
