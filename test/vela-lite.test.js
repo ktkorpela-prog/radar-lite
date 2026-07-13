@@ -2,7 +2,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { VelaLite, _testInternals } from '../src/vela-lite.js';
 
-const { parseTldrResponse, parseT3T4ReviewResponse, normaliseLabel, buildT3T4ReviewPrompt } = _testInternals;
+const { parseTldrResponse, parseT3T4ReviewResponse, normaliseLabel, buildT3T4ReviewPrompt, buildTldrPrompt } = _testInternals;
 
 // Tests share ~/.radar/register.db with the user's actual local state. Reset
 // activity_config columns that v0.4 tests configure, so prior runs don't
@@ -929,5 +929,62 @@ DIVERGENCE FROM LLM1: Concur with LLM1's assessment.
       null
     );
     assert.ok(prompt.includes('no policy uploaded for this activity type'));
+  });
+});
+
+describe('v0.4.2 tldr-prompt tier label — buildTldrPrompt', () => {
+  // Bug closed: prior versions hardcoded T2_LABEL and prompted the LLM to
+  // echo "VELA LITE (T2)" regardless of the actual tier, so single-LLM T3/T4
+  // assessments produced formatted strings that disagreed with the numeric
+  // `tier` field on the result. This describe block anchors the fix and
+  // prevents regression.
+
+  it('defaults to T2 label when no tier is passed (v0.4.1 back-compat)', () => {
+    const p = buildTldrPrompt(0.5, null);
+    assert.ok(p.includes('VELA LITE (T2)'),
+      'default arg must remain T2 so v0.4.0 callers see no behavior change');
+    assert.ok(!p.includes('VELA LITE (T3)'));
+    assert.ok(!p.includes('VELA LITE (T4)'));
+  });
+
+  it('tier=2 emits VELA LITE (T2)', () => {
+    const p = buildTldrPrompt(0.5, null, 2);
+    assert.ok(p.includes('VELA LITE (T2)'));
+    assert.ok(!p.includes('VELA LITE (T3)'));
+    assert.ok(!p.includes('VELA LITE (T4)'));
+  });
+
+  it('tier=3 emits VELA LITE (T3) — fixes the mismatch operators saw', () => {
+    const p = buildTldrPrompt(0.5, null, 3);
+    assert.ok(p.includes('VELA LITE (T3)'));
+    assert.ok(!p.includes('VELA LITE (T2)'));
+    assert.ok(!p.includes('VELA LITE (T4)'));
+  });
+
+  it('tier=4 emits VELA LITE (T4)', () => {
+    const p = buildTldrPrompt(0.5, null, 4);
+    assert.ok(p.includes('VELA LITE (T4)'));
+    assert.ok(!p.includes('VELA LITE (T2)'));
+    assert.ok(!p.includes('VELA LITE (T3)'));
+  });
+
+  it('rules text uses generic "Tier >= 2" not hardcoded "T2 actions"', () => {
+    const p = buildTldrPrompt(0.5, null, 3);
+    // The rules line previously said "T2 actions do not PROCEED" — misleading
+    // for T3/T4 single-LLM assessments. Now generalized.
+    assert.ok(!p.match(/\bT2 actions do not PROCEED\b/),
+      'rules text must not hardcode "T2 actions" any more');
+    assert.ok(/Tier\s*[>≥]=?\s*2/.test(p) || /Tier\s*≥\s*2/.test(p),
+      'rules text should generalize to Tier >= 2');
+  });
+
+  it('unknown/invalid tier values fall back to T2 label (safe default)', () => {
+    // tier=1 shouldn't route through tldr in practice, but if it did the
+    // fallback should still produce a valid prompt rather than a broken label.
+    for (const badTier of [1, 0, null, undefined, 'bogus', -1]) {
+      const p = buildTldrPrompt(0.5, null, badTier);
+      assert.ok(p.includes('VELA LITE (T2)'),
+        `tier=${JSON.stringify(badTier)} should fall back to T2 label, got: ${p.match(/VELA LITE \(T\d\)/)?.[0]}`);
+    }
   });
 });

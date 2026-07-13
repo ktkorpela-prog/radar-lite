@@ -399,9 +399,13 @@ export async function assess(action, activityType, options = {}) {
       // We force tldr mode here regardless of the threshold-based promptMode
       // because LLM2's review prompt expects four strategy options as input.
       const llm1Config = { ...effectiveConfig, t2Provider: null, t2Key: null };  // Force LLM1 routing
+      // LLM1 produces a T2-shaped tldr assessment that feeds LLM2's review.
+      // LLM1's formatted string is discarded (only .recommended and .options are
+      // consumed downstream), so we pin its label to T2 rather than surfacing
+      // the real tier in a string that never reaches the caller.
       llm1Tldr = await assessVela(
         action, scored.activityType, scored.riskScore, scored.triggerReason,
-        sliderPosition, 'tldr', llm1Config, priorDecision
+        sliderPosition, 'tldr', llm1Config, priorDecision, 2
       );
 
       // Step 2: LLM2 reviews LLM1's output (routes to t2Provider/t2Key — segregation of duties).
@@ -431,9 +435,12 @@ export async function assess(action, activityType, options = {}) {
       vela = await assessVelaT3T4Review(action, ctx, opCfg, llm1Out, effectiveConfig, priorDecision);
       log('info', `${vela.formatted}`);
     } else {
+      // v0.4.2 tier-label fix: pass the actual tier so single-LLM T3/T4
+      // assessments emit "VELA LITE (T3)" / "(T4)" instead of always echoing
+      // "VELA LITE (T2)". result.vela and dashboard logs now agree with .tier.
       vela = await assessVela(
         action, scored.activityType, scored.riskScore, scored.triggerReason,
-        sliderPosition, promptMode, effectiveConfig, priorDecision
+        sliderPosition, promptMode, effectiveConfig, priorDecision, tier
       );
       log('info', vela.formatted);
     }

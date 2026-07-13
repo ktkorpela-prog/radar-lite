@@ -42,10 +42,18 @@ Base your trigger reason on the risk score and context provided.${priorLine}
 No other text. No explanation.`;
 }
 
-function buildTldrPrompt(sliderPosition, priorDecision) {
+// v0.4.2: tier parameter added so the emitted label matches the actual tier.
+// Prior versions hardcoded T2_LABEL and prompted the LLM to echo "VELA LITE (T2)"
+// regardless of tier, producing formatted strings that disagreed with the
+// numeric `tier` field on the result for T3/T4 single-LLM assessments.
+function buildTldrPrompt(sliderPosition, priorDecision, tier = 2) {
   const strategyLines = HOLD_STRATEGIES_UPPER
     .map(s => `→ ${s}:     {one concrete action, max 12 words}{recommended_marker}`)
     .join('\n');
+
+  const tierLabel = tier === 4 ? T4_LABEL
+                  : tier === 3 ? T3_LABEL
+                  : T2_LABEL;
 
   let priorSection = '';
   if (priorDecision) {
@@ -69,7 +77,7 @@ The four strategies above are the complete taxonomy for a HOLD verdict. Output e
 
 Return ONLY this exact format, nothing else:
 
-${T2_LABEL} | {activityType} | score {score}
+${tierLabel} | {activityType} | score {score}
 
 HOLD — {one sentence recommendation, max 12 words}
 
@@ -79,7 +87,7 @@ ${strategyLines}
 
 Rules:
 - The rules engine already determined this action exceeds the review threshold. This action requires review.
-- Your verdict is always HOLD. T2 actions do not PROCEED — they are held for human or system review.
+- Your verdict is always HOLD. Tier ≥ 2 actions do not PROCEED — they are held for human or system review.
 - Your job is to recommend the best strategy (AVOID, MITIGATE, TRANSFER, or ACCEPT), not to decide whether to proceed.
 - Mark only ONE option with " (recommended)" inline
 - Each option must be specific to this action — no generic advice
@@ -472,12 +480,12 @@ function parseT3T4ReviewResponse(raw, llm1Recommended) {
 }
 
 // Exposed for test access only — not part of the public API.
-export const _testInternals = { parseTldrResponse, parseT3T4ReviewResponse, normaliseLabel, HOLD_STRATEGIES_NORMALISED, buildT3T4ReviewPrompt };
+export const _testInternals = { parseTldrResponse, parseT3T4ReviewResponse, normaliseLabel, HOLD_STRATEGIES_NORMALISED, buildT3T4ReviewPrompt, buildTldrPrompt };
 
-export async function assessVela(action, activityType, riskScore, triggerReason, sliderPosition, mode, config, priorDecision = null) {
+export async function assessVela(action, activityType, riskScore, triggerReason, sliderPosition, mode, config, priorDecision = null, tier = 2) {
   const systemPrompt = mode === 'oneliner'
     ? buildOnelinerPrompt(priorDecision)
-    : buildTldrPrompt(sliderPosition, priorDecision);
+    : buildTldrPrompt(sliderPosition, priorDecision, tier);
 
   const userMessage = buildUserMessage(action, activityType, riskScore, triggerReason, sliderPosition);
 
