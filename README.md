@@ -486,6 +486,29 @@ T2_API_KEY=sk-your-openai-key-here
 
 Or configure via the dashboard Settings tab after starting the server.
 
+### Overriding model defaults (v0.4.1)
+
+The package ships baked-in defaults for each provider's fast + reasoning model. When a vendor deprecates a model name, or when you want to pin a specific version, override the default via `~/.radar/.env` (or any mechanism that sets `process.env`) using the pattern `RADAR_<PROVIDER>_<TIER>_MODEL`:
+
+```
+# Google — override both defaults
+RADAR_GOOGLE_FAST_MODEL=gemini-3.5-flash-latest
+RADAR_GOOGLE_REASONING_MODEL=gemini-3.1-pro-preview
+
+# Anthropic — pin a specific Sonnet build
+RADAR_ANTHROPIC_REASONING_MODEL=claude-sonnet-4-6
+
+# OpenAI — opt in to the o-series reasoning tier
+RADAR_OPENAI_REASONING_MODEL=o4-mini
+```
+
+Overrides are resolved per-call, so `radar.reload()` (or dashboard config changes) picks them up without a process restart. Empty-string overrides fall back to the default — safe against accidental blanks. If a model name you've pinned starts returning 404s from the vendor (see: Google's Gemini 2.x deprecation), you can fix it in your `.env` without waiting for a package publish.
+
+Current baked-in defaults, verified 2026-06-24:
+- Anthropic — fast: `claude-haiku-4-5-20251001` · reasoning: `claude-sonnet-4-6`
+- OpenAI — fast: `gpt-4o-mini` · reasoning: `gpt-4o`
+- Google — fast: `gemini-3.5-flash` · reasoning: `gemini-3.1-pro-preview`
+
 ### Running the server persistently
 
 For production use, run the dashboard server as a background process so HTTP integrations can reach it reliably:
