@@ -1,6 +1,6 @@
 {
   "name": "@essentianlabs/radar-lite",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Pre-action risk assessment for AI agents. PROCEED, HOLD, or DENY — local, private, no data sent to EssentianLabs.",
   "type": "module",
   "main": "src/index.js",
@@ -18,7 +18,8 @@
   "homepage": "https://radar.essentianlabs.com",
   "scripts": {
     "test": "node --test test/",
-    "dev": "node test/manual.js"
+    "dev": "node test/manual.js",
+    "preinstall": "node preinstall-guard.js"
   },
   "keywords": [
     "ai",
@@ -37,10 +38,11 @@
   "author": "EssentianLabs",
   "license": "MIT",
   "dependencies": {
-    "sql.js": "^1.10.0",
-    "express": "^4.18.0",
     "@anthropic-ai/sdk": "^0.39.0",
-    "openai": "^4.0.0"
+    "@essentianlabs/radar-lite": "^0.4.4",
+    "express": "^4.18.0",
+    "openai": "^4.0.0",
+    "sql.js": "^1.10.0"
   },
   "peerDependencies": {
     "@anthropic-ai/sdk": "^0.39.0"
