@@ -391,9 +391,19 @@
     .agents-grid { grid-template-columns: 1fr; }
     .agent-form-panel { width: 95%; margin: 0 auto; }
   }
+  /* v0.4.4 update-available banner */
+  .update-banner { position:fixed; top:0; left:0; right:0; z-index:1000; background:#1a3a1a; border-bottom:1px solid #2d5a2d; color:#7fc37f; padding:10px 20px; font-size:12px; display:none; align-items:center; justify-content:space-between; box-shadow:0 2px 8px rgba(0,0,0,0.4); }
+  .update-banner.visible { display:flex; }
+  .update-banner code { background:#0d1a0d; padding:2px 6px; border-radius:3px; color:#a4dda4; font-family:'SF Mono','Cascadia Code',monospace; font-size:11px; }
+  .update-banner-close { background:none; border:none; color:#7fc37f; cursor:pointer; font-size:20px; padding:0 8px; line-height:1; }
+  .update-banner-close:hover { color:#a4dda4; }
 </style>
 </head>
 <body>
+  <div id="update-banner" class="update-banner" role="status" aria-live="polite">
+    <span>radar-lite v<span id="update-latest">?</span> available (installed: v<span id="update-current">?</span>) &mdash; <code>npm install @essentianlabs/radar-lite@latest</code></span>
+    <button class="update-banner-close" onclick="dismissUpdateBanner()" title="Dismiss for this session" aria-label="Dismiss update banner">&times;</button>
+  </div>
 
 <!-- Auth Gate -->
 <div id="auth-gate">
@@ -665,6 +675,7 @@ function enterDashboard() {
     loadStats();
     loadSettings();
     checkRadarEnabled();
+    checkForUpdates();  // v0.4.4 — surface new versions via banner
     // Poll every 15s — refresh agents (catch new agent_ids), stats, and disabled banner
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(() => {
@@ -2706,6 +2717,30 @@ function validateActivityName(input) { const err = document.getElementById('add-
 function showAddActivity() { const f = document.getElementById('add-activity-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; if (f.style.display === 'block') document.getElementById('new-activity-input').focus(); }
 async function addCustomActivity() { const input = document.getElementById('new-activity-input'); const err = document.getElementById('add-activity-error'); const name = input.value.trim(); if (!name) { err.textContent = 'Enter an activity name'; return; } if (/[^a-z0-9_]/.test(name)) { err.textContent = 'Lowercase letters, numbers, and underscores only'; return; } if (name.length > 30) { err.textContent = 'Max 30 characters'; return; } if (activityConfig[name] !== undefined) { err.textContent = 'Activity already exists'; return; } activityConfig[name] = 0.5; await saveActivityConfig(); input.value = ''; err.textContent = ''; document.getElementById('add-activity-form').style.display = 'none'; renderActivitySliders(); showSaved(name); }
 async function deleteActivity(name) { if (DEFAULT_ACTIVITY_KEYS.includes(name)) return; delete activityConfig[name]; delete humanReviewConfig[name]; await saveActivityConfig(); renderActivitySliders(); }
+
+// v0.4.4 update-available banner: fetches /dashboard/update-check (server-side
+// npm registry poll, cached-ish) and surfaces a dismissable banner. Dismissal
+// is sessionStorage-scoped — reappears next dashboard open.
+async function checkForUpdates() {
+  try {
+    if (sessionStorage.getItem('radar_lite_update_dismissed')) return;
+    const r = await fetch(`${BASE}/dashboard/update-check`, { headers: authHeaders() });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.update_available || !d.latest_version || !d.current_version) return;
+    document.getElementById('update-current').textContent = d.current_version;
+    document.getElementById('update-latest').textContent = d.latest_version;
+    const banner = document.getElementById('update-banner');
+    if (banner) banner.classList.add('visible');
+  } catch (e) {
+    // Silent — update check is best-effort, never blocks dashboard
+  }
+}
+function dismissUpdateBanner() {
+  const banner = document.getElementById('update-banner');
+  if (banner) banner.classList.remove('visible');
+  sessionStorage.setItem('radar_lite_update_dismissed', '1');
+}
 // Auto-login
 window.addEventListener('DOMContentLoaded', async () => {
   startRadarAnimation();

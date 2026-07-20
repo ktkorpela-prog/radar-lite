@@ -3,7 +3,7 @@ import { VelaLite, assessVela, assessVelaT3T4Review } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
 import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, DENY_SCORE_THRESHOLD, resolveActivityType } from './constants.js';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -54,6 +54,82 @@ export function configure(options = {}) {
     hasT2Key: !!config.t2Key,
     activities: Object.keys(config.activities)
   });
+  // v0.4.4: fire-and-forget update check. Runs at most once per process
+  // (session-scoped `updateWarned` flag), 24h TTL cache in ~/.radar/.update-check,
+  // 3s network timeout, silent on any failure. Opt out via UPDATE_CHECK=false
+  // in ~/.radar/.env or process.env. Matches the radar-mcp / radar-openclaw
+  // notification pattern — closes the gap for direct-import radar-lite users.
+  checkForUpdatesInBackground().catch(() => {});
+}
+
+// --- v0.4.4 update-check (self-check for direct-import users) ---
+
+const UPDATE_CHECK_CACHE_PATH = join(homedir(), '.radar', '.update-check');
+const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+let updateWarned = false;
+
+function isUpdateCheckEnabled() {
+  if (process.env.UPDATE_CHECK && process.env.UPDATE_CHECK.toLowerCase() === 'false') return false;
+  const envPath = join(homedir(), '.radar', '.env');
+  if (existsSync(envPath)) {
+    try {
+      const content = readFileSync(envPath, 'utf-8');
+      const match = content.match(/^UPDATE_CHECK\s*=\s*(.+)$/m);
+      if (match && match[1].trim().toLowerCase() === 'false') return false;
+    } catch (e) { /* fall through — default enabled */ }
+  }
+  return true;
+}
+
+export function compareVersions(a, b) {
+  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdatesInBackground() {
+  if (updateWarned || !isUpdateCheckEnabled()) return;
+  const installed = VelaLite.profile.version;
+
+  let cache = null;
+  try {
+    cache = JSON.parse(readFileSync(UPDATE_CHECK_CACHE_PATH, 'utf-8'));
+  } catch (e) { /* no cache */ }
+
+  const now = Date.now();
+  let latest = cache?.latest;
+
+  if (!cache || (now - cache.checkedAt) > UPDATE_CHECK_TTL_MS) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      const res = await fetch('https://registry.npmjs.org/@essentianlabs%2fradar-lite/latest', {
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return;
+      const data = await res.json();
+      latest = data.version;
+      try {
+        mkdirSync(join(homedir(), '.radar'), { recursive: true });
+        writeFileSync(UPDATE_CHECK_CACHE_PATH, JSON.stringify({ checkedAt: now, latest }));
+      } catch (e) { /* cache write failure — non-fatal */ }
+    } catch (e) {
+      return; // network failure, timeout, DNS issue — silent
+    }
+  }
+
+  if (latest && compareVersions(latest, installed) > 0) {
+    updateWarned = true;
+    console.warn(
+      `[radar-lite] v${latest} is available (installed: v${installed}). ` +
+      `Run \`npm install @essentianlabs/radar-lite@latest\` to update.`
+    );
+  }
 }
 
 function isRadarEnabled() {
