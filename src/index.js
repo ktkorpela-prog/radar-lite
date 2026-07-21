@@ -2,6 +2,7 @@ import { classify, getThresholds } from './classifier.js';
 import { VelaLite, assessVela, assessVelaT3T4Review } from './vela-lite.js';
 import * as register from './register.js';
 import { recordStrategy } from './strategy.js';
+import { recordComplete } from './complete.js';
 import { DEFAULT_SLIDER, DEFAULT_PROVIDER, T1_LABEL, DENY_SCORE_THRESHOLD, resolveActivityType } from './constants.js';
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -594,6 +595,66 @@ export async function strategy(callId, chosenStrategy, options = {}) {
   return recordStrategy(callId, chosenStrategy, options);
 }
 
+// v0.5.0 B1 — post-execution observation. Attach what actually happened to a
+// prior assess() call. Additive audit; never blocks. See src/complete.js.
+export async function complete(callId, outcome = {}) {
+  return recordComplete(callId, outcome);
+}
+
+// v0.5.0 B1 — assess + run + complete in one call.
+// Safety-critical contract: workFn runs ONLY on PROCEED. On HOLD/DENY the work
+// is NOT executed — the assessment is returned for the caller to handle.
+// On PROCEED: a normal return → 'succeeded' (return value merged into metrics),
+// an Error throw → 'failed' (message in diff_notes), a non-Error throw → 'aborted'.
+// Errors are captured, not re-thrown, so the outcome is always recorded.
+export async function assessAndTrack(action, activityType, workFn, options = {}) {
+  const assessment = await assess(action, activityType, options);
+
+  if (assessment.status !== 'PROCEED') {
+    return { assessment, ran: false, outcome: null, result: null, completion: null };
+  }
+
+  let outcome;
+  let result = null;
+  let error;
+  try {
+    result = await workFn();
+    outcome = 'succeeded';
+  } catch (err) {
+    if (err instanceof Error) {
+      outcome = 'failed';
+      error = err.message;
+    } else {
+      outcome = 'aborted';
+      error = String(err);
+    }
+  }
+
+  // On success, surface the return value as metrics (objects as-is, scalars wrapped).
+  let metrics = null;
+  if (outcome === 'succeeded') {
+    if (result && typeof result === 'object') metrics = result;
+    else if (result !== undefined && result !== null) metrics = { value: result };
+  }
+
+  const completion = await complete(assessment.callId, {
+    outcome,
+    diff_notes: error,               // undefined on success → persisted as null
+    metrics,
+    reported_by_agent: options.agentId ?? null
+  });
+
+  const out = {
+    assessment,
+    ran: true,
+    outcome,
+    result: outcome === 'succeeded' ? result : null,
+    completion
+  };
+  if (error !== undefined) out.error = error;
+  return out;
+}
+
 export async function history(limit = 100) {
   return register.history(limit);
 }
@@ -619,7 +680,7 @@ export async function clear() {
 }
 
 export const radar = {
-  configure, assess, strategy, history, stats,
+  configure, assess, strategy, complete, assessAndTrack, history, stats,
   checkPolicy, saveActivityConfig, savePolicy, reload, clear
 };
 

@@ -79,6 +79,33 @@ export interface StrategyResult {
   velaOverridden: boolean;
 }
 
+// v0.5.0 B1 — post-execution observation
+export type Outcome = 'succeeded' | 'failed' | 'partial' | 'aborted';
+
+export interface CompleteInput {
+  outcome: Outcome;
+  actual_scope?: string;
+  diff_notes?: string;
+  metrics?: Record<string, unknown>;
+  reported_by_agent?: string | null;
+}
+
+export interface CompleteResult {
+  recorded: boolean;
+  alreadyCompleted?: boolean;
+  divergence_flagged: boolean;
+  divergence_reasons?: string[];
+}
+
+export interface AssessAndTrackResult {
+  assessment: AssessResult;
+  ran: boolean;
+  outcome: Outcome | null;
+  result: unknown;
+  error?: string;
+  completion: CompleteResult | null;
+}
+
 export interface StatsResult {
   total: number;
   holdRate: number;
@@ -101,6 +128,15 @@ export interface AssessmentRecord {
   radar_enabled: number;
   agent_id: string | null;
   created_at: string;
+  // v0.5.0 B1 post-execution observation (NULL until radar.complete() is called)
+  outcome?: string | null;
+  actual_scope?: string | null;
+  diff_notes?: string | null;
+  metrics_json?: string | null;
+  divergence_flagged?: number | null;
+  divergence_reasons_json?: string | null;
+  reported_at?: string | null;
+  reported_by_agent?: string | null;
 }
 
 export interface VelaLiteProfile {
@@ -114,6 +150,8 @@ export interface VelaLiteProfile {
 export function configure(options?: ConfigureOptions): void;
 export function assess(action: string, activityType: ActivityType | string, options?: AssessOptions): Promise<AssessResult>;
 export function strategy(callId: string, chosenStrategy: Strategy, options?: StrategyOptions): Promise<StrategyResult>;
+export function complete(callId: string, outcome: CompleteInput): Promise<CompleteResult>;
+export function assessAndTrack<T = unknown>(action: string, activityType: ActivityType | string, workFn: () => T | Promise<T>, options?: AssessOptions): Promise<AssessAndTrackResult>;
 export function history(limit?: number): Promise<AssessmentRecord[]>;
 export function stats(): Promise<StatsResult>;
 export function checkPolicy(action: string, agentId?: string | null): Promise<PolicyDecision>;
@@ -135,6 +173,8 @@ export interface Radar {
   configure: typeof configure;
   assess: typeof assess;
   strategy: typeof strategy;
+  complete: typeof complete;
+  assessAndTrack: typeof assessAndTrack;
   history: typeof history;
   stats: typeof stats;
   checkPolicy: typeof checkPolicy;

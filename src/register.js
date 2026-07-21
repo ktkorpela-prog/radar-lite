@@ -8,6 +8,11 @@ import { CONSERVATIVE_DENY_DEFAULTS } from './constants.js';
 let db = null;
 let dbPath = null;
 let SQL = null;
+// sha256 of register.db as we last loaded/persisted it. Lets ensureDb() detect when
+// ANOTHER process (e.g. the dashboard) has written the file — reliably, regardless of
+// mtime resolution — so we reload rather than overwrite their change with our stale
+// in-memory copy. This is the fix for the multi-process config-clobber bug.
+let loadedHash = null;
 
 function getDbPath() {
   const dir = join(homedir(), '.radar');
@@ -17,8 +22,11 @@ function getDbPath() {
 
 function persistDb() {
   if (db && dbPath) {
-    const data = db.export();
-    writeFileSync(dbPath, Buffer.from(data));
+    const buf = Buffer.from(db.export());
+    writeFileSync(dbPath, buf);
+    // Record the content hash we just wrote, so our own write doesn't look like an
+    // external change on the next ensureDb() (which would force a needless reload).
+    loadedHash = createHash('sha256').update(buf).digest('hex');
   }
 }
 
@@ -28,21 +36,24 @@ export async function reload() {
     persistDb();
   }
   db = null;
+  loadedHash = null;  // force ensureDb() to re-read from disk
   return ensureDb();
 }
 
 async function ensureDb() {
-  if (db) return db;
-
   if (!SQL) SQL = await initSqlJs();
-  dbPath = getDbPath();
+  if (!dbPath) dbPath = getDbPath();
 
-  if (existsSync(dbPath)) {
-    const buffer = readFileSync(dbPath);
-    db = new SQL.Database(buffer);
-  } else {
-    db = new SQL.Database();
-  }
+  const bytes = existsSync(dbPath) ? readFileSync(dbPath) : null;
+  const hash = bytes ? createHash('sha256').update(bytes).digest('hex') : null;
+  // Fast path: file unchanged on disk since we loaded it → reuse the in-memory copy.
+  // Returning the SAME instance keeps re-entrant callers (e.g. saveActivityConfig,
+  // which reads via getActivityConfig mid-write) consistent within one operation.
+  if (db && hash !== null && hash === loadedHash) return db;
+
+  // First load, or another process wrote the file → (re)load from disk, then ensure schema.
+  const fresh = bytes === null;
+  db = fresh ? new SQL.Database() : new SQL.Database(bytes);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS assessments (
@@ -73,6 +84,17 @@ async function ensureDb() {
   try { db.run('ALTER TABLE assessments ADD COLUMN agreement INTEGER DEFAULT NULL'); } catch (e) {}
   try { db.run('ALTER TABLE assessments ADD COLUMN policy_check_compliant INTEGER DEFAULT NULL'); } catch (e) {}
   try { db.run('ALTER TABLE assessments ADD COLUMN policy_violations TEXT DEFAULT NULL'); } catch (e) {}
+  // v0.5.0 B1 post-execution observation — outcome fields written by radar.complete().
+  // All NULLable; existing rows and never-reported calls keep NULL (indistinguishable
+  // by design — see SPEC-v0.5.0 §4.1 "Unclosed callIds").
+  try { db.run('ALTER TABLE assessments ADD COLUMN outcome TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN actual_scope TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN diff_notes TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN metrics_json TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN divergence_flagged INTEGER DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN divergence_reasons_json TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN reported_at TEXT DEFAULT NULL'); } catch (e) {}
+  try { db.run('ALTER TABLE assessments ADD COLUMN reported_by_agent TEXT DEFAULT NULL'); } catch (e) {}
   db.run('CREATE INDEX IF NOT EXISTS idx_activity ON assessments(activity_type)');
   db.run('CREATE INDEX IF NOT EXISTS idx_tier ON assessments(tier)');
   db.run('CREATE INDEX IF NOT EXISTS idx_created ON assessments(created_at)');
@@ -122,7 +144,14 @@ async function ensureDb() {
     )
   `);
 
-  persistDb();
+  if (fresh || loadedHash === null) {
+    // Brand-new file, or first load in this process → persist the (migrated) schema.
+    persistDb();
+  } else {
+    // Reloaded due to an external change — the file is already current; just record
+    // its hash (persisting here would rewrite exactly what we just read).
+    loadedHash = hash;
+  }
 
   return db;
 }
@@ -260,6 +289,37 @@ export async function updateStrategy(callId, strategy, decidedBy, velaOverridden
   db.run(
     `UPDATE assessments SET chosen_strategy = ?, decided_by = ?, vela_overridden = ?, strategy_scope = ? WHERE id = ?`,
     [strategy, decidedBy, velaOverridden ? 1 : 0, scope, callId]
+  );
+  const changes = db.getRowsModified();
+  persistDb();
+  return changes > 0;
+}
+
+// v0.5.0 B1: persist a post-execution outcome onto an existing assessment row.
+// `outcome` is the fully-resolved record from complete.js (divergence already
+// computed). Storage-only — validation and divergence detection live in complete.js,
+// mirroring how index.js computes and register.save() persists.
+export async function updateOutcome(callId, outcome) {
+  const db = await ensureDb();
+  db.run(
+    `UPDATE assessments SET
+       outcome = ?, actual_scope = ?, diff_notes = ?, metrics_json = ?,
+       divergence_flagged = ?, divergence_reasons_json = ?,
+       reported_at = ?, reported_by_agent = ?
+     WHERE id = ?`,
+    [
+      outcome.outcome,
+      outcome.actual_scope ?? null,
+      outcome.diff_notes ?? null,
+      outcome.metrics ? JSON.stringify(outcome.metrics) : null,
+      outcome.divergence_flagged ? 1 : 0,
+      (outcome.divergence_reasons && outcome.divergence_reasons.length)
+        ? JSON.stringify(outcome.divergence_reasons)
+        : null,
+      outcome.reported_at,
+      outcome.reported_by_agent ?? null,
+      callId
+    ]
   );
   const changes = db.getRowsModified();
   persistDb();

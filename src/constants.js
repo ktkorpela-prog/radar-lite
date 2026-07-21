@@ -8,6 +8,18 @@ export const HOLD_STRATEGIES = ['avoid', 'mitigate', 'transfer', 'accept'];
 // override_deny is a deliberate human action, NOT a Vela-offered option.
 export const VALID_STRATEGIES = [...HOLD_STRATEGIES, 'override_deny'];
 
+// v0.5.0 B1 post-execution observation — outcome vocabulary for radar.complete().
+// Fixed enum (see SPEC-v0.5.0 §4.1):
+//   succeeded — ran to completion, achieved intended effect
+//   failed    — ran but did not achieve intended effect
+//   partial   — achieved some of the intended effect (the nginx sed case)
+//   aborted   — cancelled before execution
+export const VALID_OUTCOMES = ['succeeded', 'failed', 'partial', 'aborted'];
+
+// v0.5.0 B1: cap on free-form diff_notes length. Aligns with the action-string
+// limit; complete() rejects above this. Kept as a constant so radar-api can share it.
+export const DIFF_NOTES_CHAR_CAP = 10000;
+
 export const T1_LABEL = 'VELA LITE (T1)';
 export const T2_LABEL = 'VELA LITE (T2)';
 // v0.4: T3/T4 review path — produces 'VELA LITE (T3)' or 'VELA LITE (T4)' dynamically
